@@ -21,8 +21,9 @@ SAP_BTP_인턴/
 ├── README.md          # 프로젝트 소개
 ├── docs/              # 프로젝트 문서
 │   ├── project-premise.md   # 핵심 전제 및 개발 환경
-│   └── setup-guide.md       # BTP Trial + Eclipse/ADT 설치 과정·트러블슈팅 기록
-└── 1_사전공부/         # 학습 자료 링크, 강의 정리 (README.md 참고)
+│   ├── setup-guide.md       # BTP Trial + Eclipse/ADT + abapGit + MCP 세팅 절차·트러블슈팅
+│   └── research-notes.md    # 조사·의사결정 기록 (환경/도구를 왜 선택했는가)
+└── 1_사전공부/         # 학습 자료 링크와 학습 순서 (README.md 참고)
 ```
 
 새 폴더를 추가하면 위 구조에 반영할 것.

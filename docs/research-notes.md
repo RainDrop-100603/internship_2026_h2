@@ -1,0 +1,115 @@
+# 조사·의사결정 기록 (Research & Decision Notes)
+
+> 이 프로젝트에서 **"왜 이 선택을 했는가"**를 남기는 문서.
+> 환경·도구를 정하기 위해 조사한 내용과 그 결론을 기록한다. 절차(HOW)는 [setup-guide.md](setup-guide.md), 학습 자료는 [1_사전공부/README.md](../1_사전공부/README.md) 참고.
+
+## 결정 요약표
+
+각 결정의 상세 근거는 표의 링크 또는 아래 조사 기록 섹션 참고.
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 개발 환경 | SAP BTP Trial | 별도 SAP 서버 없음. 다운로드형 서버는 배포 중단/EOL ([상세](#조사-1-다운로드형-서버온프레미스-developer-edition-현황)) |
+| 리전 | Singapore - Azure | 한국에서 최저 지연시간, ABAP 트라이얼 지원 리전 |
+| IDE | Eclipse ADT (VS Code 아님) | 공식 툴링이 Eclipse 전용. 강의·튜토리얼 전부 Eclipse 기준. VS Code는 커뮤니티 확장만 있고 RAP/디버깅 지원 부족 |
+| Eclipse 아키텍처 | x86_64 | Intel i7-1165G7 (AMD64) |
+| Eclipse 패키지 | Eclipse IDE for Java Developers | SAP 공식 튜토리얼 기준. Enterprise/C++ 등은 불필요 |
+| 워크스페이스 위치 | 로컬 `C:\workspace` (git 저장소 밖) | 한글 경로 회피 + ABAP 소스는 서버 저장이라 git 추적 실익 없음 |
+| 90일 만료 대응 | 같은 계정으로 트라이얼 재생성 + abapGit 백업 | 연장 불가, 데이터 소멸되므로 코드 백업 필수 ([상세](#조사-3-btp-trial-90일-정책)) |
+| MCP 서버 | fr0ster/mcp-abap-adt (vibing-steampunk 보류) | 서비스 키 OAuth 자동 갱신 지원. vsp는 BTP 인증이 쿠키 수동 추출 방식이라 불안정 ([상세](#mcp-서버-비교--fr0stermcp-abap-adt-채택-vs-oiseevibing-steampunk-2026-07-조사)) |
+| 작업 패키지 | `ZPKS_INTERN_260719` (superpackage: ZLOCAL) | 공유 시스템이라 본인 패키지로 범위 한정. CLAUDE.md에 규칙 명시 |
+
+## 조사 1: 다운로드형 서버(온프레미스 Developer Edition) 현황
+
+> 결론: 이 프로젝트는 **SAP BTP Trial 기준**으로 진행. 대안이었던 다운로드형(로컬 설치형) 서버가 왜 제외되었는지 기록.
+
+- **ABAP Cloud Developer Trial** (Docker 이미지) — 무료, 교육·데모 목적 전용(상업적 사용 불가), 커뮤니티 지원만 제공. ABAP 라이선스가 3개월짜리라 minisap에서 데모 라이선스를 받아 SLICENSE로 주기 갱신 필요. 하드웨어 요구 높음(이미지 15GB+, Docker 메모리 20GB+ 할당 권장, RAM 32GB 권장)
+  - **2026년 2월부로 전 버전이 Docker Hub에서 내려간 상태.** SAP가 ABAP Platform 2025 SP01 기반의 2025 버전을 준비 중이나 일정 미정
+- **AS ABAP 7.xx Developer Edition** (구형, 2017년~) — EOL 선언. **2026년 9월 30일 완전 철수 예정.** 구버전(7.52)이라 ABAP Cloud/RAP 학습에 부적합
+- 출처: [ABAP Cloud Developer Trial 2023 Available Now (SAP 공식 블로그)](https://community.sap.com/t5/technology-blog-posts-by-sap/abap-cloud-developer-trial-2023-available-now/ba-p/14057183), [ABAP Platform Trial FAQ (GitHub)](https://github.com/SAP-docs/abap-platform-trial-image/blob/main/faq-v7.md)
+- **결론: 현시점(2026-07) 로컬 서버 경로는 사실상 막혀 있으므로 BTP Trial이 유일한 실용적 경로**
+
+## 조사 2: 강의 진행 가능 여부 확인 (2026-07 체크 완료)
+
+- [Learning Basic ABAP Programming](https://learning.sap.com/courses/basic-abap-programming) 코스는 "SAP BTP ABAP environment 기반"으로 명시되어 있어 **BTP Trial로 진행 가능** ✅
+- [Create an SAP BTP ABAP Environment Trial User](https://developers.sap.com/tutorials/abap-environment-trial-onboarding..html) 튜토리얼 현재 유효 (2025-05 업데이트 확인)
+
+## 조사 3: BTP Trial 90일 정책
+
+- 트라이얼 계정은 90일 후 **자동 삭제** — 앱·서비스·데이터·설정 전부 소멸, 연장 불가
+- **새 SAP 계정을 팔 필요는 없음**: 같은 SAP 로그인(이메일)으로 새 트라이얼 계정을 다시 생성하면 됨
+- 단, 이전 작업물은 복구 불가 → **코드는 abapGit 등으로 주기적 백업 필수** (백업 절차: [setup-guide.md의 abapGit 섹션](setup-guide.md#8-abapgit-세팅-90일-만료-대비-백업--코드-공유))
+- 시간 제한 없는 대안인 Free Tier는 ABAP 환경에 [정책 변경](https://community.sap.com/t5/technology-blog-posts-by-sap/important-update-changes-to-the-free-tier-option-for-sap-btp-abap/ba-p/13592731)이 있었으므로, 학습용은 90일마다 트라이얼 재생성이 현실적
+- 출처: [Trial Accounts and Free Tier (SAP Help Portal)](https://help.sap.com/docs/btp/sap-business-technology-platform/trial-accounts-and-free-tier)
+
+## 조사 4: Claude Code ↔ BTP Trial ABAP 연동 (MCP) — 2026-07
+
+목표: Claude Code에서 (1) ABAP 코드/테이블 데이터 조회, (2) 외부에서 호출한 OData 요청을 BTP Trial이 인바운드로 수신. **아웃바운드(ABAP → 외부) 불필요**, 인바운드만 필요.
+
+### 트라이얼 네트워크 제약 요약
+
+- BTP Trial ABAP 환경은 **Destination Service를 지원하지 않음** → 표준 방식의 아웃바운드(ABAP가 외부를 호출하는 것)는 불가
+  - 우회책은 있음: 코드 내 `cl_http_destination_provider=>create_by_url()`로 URL 직접 지정 (트라이얼 한정 workaround)
+  - 이번 목적(인바운드만)에는 해당 없음 — 참고용으로만 기록
+- **인바운드(외부 → ABAP)는 트라이얼에서도 정상 지원.** Basic Auth 기반 Communication User/Arrangement로 외부 클라이언트가 호출 가능
+
+### 목적 1 — Claude Code에서 코드/테이블 조회: 가능, 기존 MCP 서버 활용 가능
+
+ADT REST API(`/sap/bc/adt/`, Eclipse ADT 플러그인이 내부적으로 쓰는 것과 동일한 API)를 감싼 오픈소스 MCP 서버가 이미 여럿 존재:
+
+- [fr0ster/mcp-abap-adt](https://github.com/fr0ster/mcp-abap-adt) — **BTP ABAP Cloud + 온프레미스 ECC/S4HANA 둘 다 지원**, full CRUD, **서비스 키 기반 JWT/XSUAA 인증** 내장 (BTP Trial 서비스 키를 그대로 사용 가능)
+- [mario-andreschak/mcp-abap-adt](https://mcpservers.org/servers/mario-andreschak/mcp-abap-adt) — 읽기 전용 13개 툴(GetClass, GetTable, SearchObject 등). 조회만 필요하면 더 안전한 선택
+- 참고 가이드: [How I Connected Claude AI to My SAP ABAP System Using MCP (Windows)](https://community.sap.com/t5/artificial-intelligence-blogs-posts/how-i-connected-claude-ai-to-my-sap-abap-system-using-mcp-a-complete/ba-p/14365831)
+- MCP 서버 종합 목록: [marianfoo/sap-ai-mcp-servers](https://github.com/marianfoo/sap-ai-mcp-servers)
+
+> ⚠️ 인증 주의: BTP ABAP 환경(Steampunk)의 ADT API는 Basic Auth가 아니라 **OAuth(서비스 키 → JWT 토큰)** 방식. 위 MCP 서버들이 토큰 발급을 처리해주므로, BTP Cockpit에서 ABAP 인스턴스의 **서비스 키(Service Key) 발급**만 하면 됨.
+
+### MCP 서버 비교 — fr0ster/mcp-abap-adt (채택) vs oisee/vibing-steampunk (2026-07 조사)
+
+두 후보 모두 ADT REST API를 감싼 MCP 서버. 어떤 기능이 되고 안 되는지 비교:
+
+| 항목 | [fr0ster/mcp-abap-adt](https://github.com/fr0ster/mcp-abap-adt) v8.8.1 (채택) | [oisee/vibing-steampunk](https://github.com/oisee/vibing-steampunk) (vsp) |
+|---|---|---|
+| 구현/설치 | Node.js, npm 패키지 2개 (`core` + `connection`) | Go 단일 바이너리, 의존성 없음 |
+| 지원 시스템 | BTP ABAP Cloud(기본) + 온프레미스 ECC/S4 (`--system-type=onprem`, RFC 옵션) | 온프레미스 ECC/S4 중심 + BTP/Cloud (쿠키 인증으로) |
+| **BTP 인증** | ✅ **서비스 키 OAuth → JWT + refresh token 자동 갱신** (`sap-abap-auth` 브라우저 로그인 1회) | ⚠️ 브라우저에서 `__VCAP_ID__`/`JSESSIONID` **쿠키 수동 추출**. OAuth/서비스 키 미지원 → 세션 만료마다 재추출 |
+| 온프레미스 인증 | Basic Auth, RFC | Basic Auth, 쿠키, 브라우저 SSO(Kerberos/SAML/Keycloak) |
+| 권한 제어 | `--exposition` 세트 (readonly / high / low / compact)로 위험도별 노출 제어 | 모드별 도구 수 조절 (focused 100 / expert 147 / hyperfocused 1개 통합 툴) |
+| 소스·패키지·테이블 조회 | ✅ (Get*, SearchObject, GetTableContents) | ✅ |
+| 생성/수정/활성화 (클래스·CDS·테이블 등) | ✅ (Create*/Update*/Activate*) | ✅ |
+| RAP 개발 (BDEF/SRVD/SRVB) | ✅ 생성·수정·바인딩 | ✅ 생성·서비스 발행까지 |
+| SQL 쿼리 실행 | ✅ GetSqlQuery | ✅ 임의 ABAP SQL |
+| 유닛 테스트 실행 | ✅ RunUnitTest (+ CDS 유닛 테스트) | ✅ |
+| 임의 코드 실행 | ✅ RuntimeRunClass (`if_oo_adt_classrun` 실행) | ✅ ExecuteABAP (유닛 테스트 래퍼로 주입) |
+| **디버깅** (브레이크포인트·스택·변수) | ❌ 없음 | ✅ 외부 브레이크포인트, 스텝 실행, 변수 조회 (AMDP는 실험적) |
+| **ATC 검사** | ❌ 없음 | ✅ |
+| 정적 분석 | ✅ AST·시맨틱 분석, Where-Used, 버전 이력/diff | ✅ 콜그래프, dead code 탐지, 패키지 헬스 체크 |
+| 덤프·트레이스 | ✅ Runtime* (덤프 조회, 프로파일러 트레이스) | ✅ RABAX 덤프, ATRA 프로파일, ST05 SQL 트레이스 |
+| 트랜스포트 | ✅ Create/List/Get | ✅ 목록·상세 조회 |
+| **abapGit 연동** | ❌ 없음 (Eclipse 플러그인으로 별도 진행) | ✅ export/import |
+| 클래식 리포트/프로그램 | onprem 모드에서만 (BTP는 언어 제약상 원천 불가) | ✅ 온프레미스에서 |
+
+**채택 결론**: 기능 폭은 vsp가 더 넓지만(디버깅·ATC·abapGit), 이 프로젝트의 대상은 **BTP Trial**이라 인증 방식이 결정적 — vsp는 쿠키를 브라우저에서 수동 추출해야 하고 만료 시마다 반복해야 하는 반면, fr0ster는 서비스 키 기반 OAuth로 refresh token 자동 갱신이 되어 **무인 연동에 적합**. 디버깅·ATC가 필요해지면 Eclipse ADT에서 직접 수행하면 됨 (vsp가 없어도 학습 목적에는 공백 아님)
+
+- vsp 참고 자료: [README_TOOLS.md (96개 도구 문서)](https://github.com/oisee/vibing-steampunk/blob/main/README_TOOLS.md), [SAP 커뮤니티 세팅 후기](https://community.sap.com/t5/technology-blog-posts-by-members/try-vibing-steampunk-to-generate-abap-setting-up-vsp-with-a-cal-instance/ba-p/14341656)
+
+### 목적 2 — 외부에서 OData 호출 → BTP Trial이 수신: 가능, 표준 경로 존재
+
+1. RAP으로 서비스 개발 → **Service Binding**(OData V2/V4 Web API) 생성 → 외부 접근 가능한 URL 발급
+2. **Communication Scenario/Arrangement** 생성해 인바운드 허용
+3. **Communication User**(ID/비밀번호, Basic Auth) 생성
+4. 외부 클라이언트(Claude Code, curl, Postman 등)에서 해당 URL 호출
+
+- 공식 튜토리얼: [Publish an OData service for remote consumption as an API](https://developers.sap.com/tutorials/abap-environment-a4c-inbound-communication..html)
+- BTP Trial 온보딩 3부작의 2번째 튜토리얼("Create and Expose a CDS-Based Data Model")이 정확히 이 경로라 트라이얼에서 검증된 시나리오
+
+### 결론
+
+| 목적 | 가능 여부 | 방법 |
+|---|---|---|
+| 1. 코드/테이블 조회 (Claude Code → ABAP) | ✅ | 기존 MCP 서버(fr0ster/mcp-abap-adt 등) + 서비스 키(OAuth) |
+| 2. 외부 OData 호출 수신 (외부 → BTP Trial) | ✅ | Service Binding + Communication Arrangement (Basic Auth) |
+
+두 목적 모두 인바운드 방향이라 BTP Trial의 아웃바운드 제약(Destination Service 미지원)과 무관하게 정상 동작.
+
+실제 MCP 세팅 절차와 트러블슈팅은 [setup-guide.md의 MCP 연동 섹션](setup-guide.md#9-claude-code--abap-mcp-연동-mcp-abap-adt) 참고.
