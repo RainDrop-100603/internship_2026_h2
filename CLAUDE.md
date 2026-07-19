@@ -6,6 +6,7 @@ SAP BTP(Business Technology Platform) 기반 ABAP 학습 프로젝트.
 
 **이 프로젝트는 SAP BTP Trial 기준으로 진행한다.** 상세 내용은 아래 문서 참고:
 
+- 자료 조사·추천 시 온프레미스(AS ABAP Developer Edition, Docker 이미지 등) 기준 자료는 제외하거나, 부득이하면 온프레미스용임을 명시할 것.
 - [핵심 전제 및 개발 환경](docs/project-premise.md)
 
 ## ABAP 작업 규칙 (MCP)
@@ -15,8 +16,9 @@ SAP BTP(Business Technology Platform) 기반 ABAP 학습 프로젝트.
 
 ## 작업 단위 규칙 (git/폴더)
 
-- 구분되는 작업은 **전용 폴더**(`N_작업명/`) + **전용 브랜치**(`work/N-영문슬러그`)로 진행하고, 작업 종료 시에만 `--no-ff`로 main에 merge한다 (merge 후 브랜치 보존).
-- 새 작업 시작 시 브랜치 생성부터. 상세 규칙(네이밍·merge 방식·예외): [작업 단위 규칙](docs/workflow-rules.md)
+- 구분되는 작업은 **전용 폴더**(`N_작업명/`) + **전용 브랜치**(`work/N-영문슬러그`)로 진행하고, 작업 종료 시에만(사용자 확인 후) `--no-ff`로 main에 merge한다 (merge 후 브랜치 보존).
+- 새 작업 시작 시 브랜치 생성부터. 예외: 어느 작업에도 속하지 않는 소규모 정비(오타·문서 정비 등)는 main 직접 커밋 허용.
+- 상세 규칙(네이밍·merge 방식·예외 판단 기준): [작업 단위 규칙](docs/workflow-rules.md)
 
 ## 폴더 구조
 
