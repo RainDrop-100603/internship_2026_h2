@@ -42,6 +42,17 @@
   ```
 - 설치 폴더(Installation Folder)와 최초 실행 시 뜨는 워크스페이스(Workspace) 지정 창, **둘 다** 변경 필요
 - 이유: 한글 경로 이슈 회피 + `C:\` 루트 하위는 경로 길이 제한(MAX_PATH) 이슈도 줄어듦
+- **워크스페이스는 git 저장소 하위에 두지 말 것** (로컬 `C:\workspace` 사용):
+  - 이 프로젝트 저장소 경로에는 한글이 포함되어 있음
+  - ABAP Cloud Project의 실제 소스는 BTP 서버에 저장됨 — 워크스페이스는 뷰/캐시일 뿐이라 git으로 추적할 실익 없음
+  - ABAP 소스 백업/버전관리는 abapGit으로 별도 진행하는 게 정석
+  - 워크스페이스의 `.metadata`(IDE 설정·인덱스·로그)가 git에 딸려 들어가면 저장소만 지저분해짐
+
+### 참고: 실행 시 나타나는 보안 관련 창
+
+- **Microsoft Defender Exclusion Check** (ADT가 띄우는 안내): Defender 실시간 검사가 Eclipse 작업 폴더를 매번 스캔하면 느려질 수 있어 예외 등록을 권장하는 것
+  - 개인 PC면 `Windows 보안 > 바이러스 및 위협 방지 > 제외 항목`에 `C:\eclipse`, `C:\workspace` 폴더 추가 (관리자 권한 필요)
+  - 필수 아님 — 건너뛰어도 동작에는 문제없고 성능만 다소 저하. 회사 보안 정책이 있는 PC면 건너뛸 것
 
 ### 트러블슈팅: `eclipse-inst-jre-win64.exe` 실행해도 아무 반응 없음
 
@@ -65,7 +76,10 @@
 - URL 입력: `https://tools.hana.ondemand.com/latest`
 - **ABAP Development Tools** 선택 → Next → 라이선스 동의 → Finish
 - Trust Authorities / Trust Artifacts 화면이 나오면 All 선택 → Trust Selected
+  - Trust Artifacts에서 `javax.wsdl` 같은 **Unsigned 항목 경고**가 뜨는 건 정상 (ADT가 의존하는 구형 라이브러리가 미서명 배포되던 시절 번들) → Unsigned 체크 후 Trust Selected
+  - 단, **"Always trust all content"는 체크하지 않기** — 앞으로 모든 미서명 콘텐츠를 무조건 신뢰하는 전역 설정이라 개별 신뢰가 더 안전
 - 설치 후 재시작 → `Window > Perspective > Open Perspective > Other > ABAP`
+  - 목록에 ABAP이 없으면 ADT 설치 미완료 또는 재시작 안 된 상태
 - 공식 가이드: [Download the Eclipse IDE and add the ADT Plugin](https://developers.sap.com/tutorials/abap-install-adt..html)
 
 ## 5. ABAP Trial 인스턴스 생성 (부스터)
@@ -78,10 +92,67 @@
 
 ## 6. Eclipse에서 ABAP Cloud Project 연결
 
-- Eclipse: `File > New > Other > ABAP Cloud Project`
-- 부스터 완료 후 받은 ABAP 인스턴스 URL 입력 → "Open Logon Page in Browser"로 브라우저 로그인 → 연결 완료
+- **인스턴스 URL 확인**: BTP Cockpit → 서브계정(trial) → `Services > Instances and Subscriptions` → 부스터가 만든 ABAP environment 인스턴스에서 URL 복사
+  - 형태: `https://<시스템ID>.abap.ap21.hana.ondemand.com` (ap21 = Singapore 리전). 일반 웹사이트가 아니라 본인 전용 ABAP 시스템의 접속 엔드포인트
+- Eclipse: `File > New > Other > ABAP Cloud Project` → **SAP BTP ABAP Environment** 선택
+- 연결 방식: **"Use a Service Instance URL"** 선택 후 URL 붙여넣기 (서비스 키 JSON 방식도 있으나 URL이 더 간단)
+- **"Open Logon Page in Browser"** → 브라우저에서 트라이얼 SAP 계정으로 로그인 → Eclipse로 돌아오면 자동 연결
+- 프로젝트 이름은 자유 (예: `Connect_Test_260719`)
+- **Working Sets는 체크 안 하고 Finish** — 프로젝트가 많아졌을 때의 그룹핑 기능일 뿐, 나중에 언제든 추가 가능
 
-## 7. 이후 학습
+## 7. 연결 검증 — Hello World
+
+- 화면에 Project Explorer가 안 보이면: `Window > Show View > Project Explorer` (또는 `Window > Perspective > Reset Perspective`)
+- `File > New > ABAP Class` → Package: 본인 패키지(아래 공유 시스템 참고), Name: `ZCL_HELLO_<고유접미사>`
+- 코드:
+  ```abap
+  CLASS zcl_hello_xxx DEFINITION
+    PUBLIC FINAL CREATE PUBLIC.
+    PUBLIC SECTION.
+      INTERFACES if_oo_adt_classrun.
+  ENDCLASS.
+
+  CLASS zcl_hello_xxx IMPLEMENTATION.
+    METHOD if_oo_adt_classrun~main.
+      out->write( 'Hello World from BTP Trial!' ).
+    ENDMETHOD.
+  ENDCLASS.
+  ```
+- **Ctrl+F3**(활성화 — 저장만으로는 반영 안 됨) → **F9**(콘솔 실행) → Console 뷰에 출력 확인되면 환경 구축 완료
+
+### ⚠️ BTP Trial은 공유 시스템 — 네이밍/보안 주의
+
+- 트라이얼 ABAP 시스템은 **전 세계 트라이얼 사용자가 함께 쓰는 공유 시스템** (ZLOCAL 하위에 타 사용자 패키지 수만 개 존재)
+- **작업 공간**: `ZLOCAL`을 superpackage로 하는 **본인 패키지**를 만들어 그 안에서 작업 (`File > New > ABAP Package`, transport 불필요). 트라이얼에선 ZLOCAL 계열이 사실상 유일한 작업 공간
+- **네이밍**: `Z` 네임스페이스를 모든 사용자가 공유하므로 오브젝트 이름은 시스템 전체에서 유일해야 함. `ZCL_HELLO_WORLD` 같은 뻔한 이름은 이미 선점됐을 확률 높음 → **이니셜+날짜 등 고유 접미사** 사용 (예: `ZPKG_KS0719`, `ZCL_HELLO_KS0719`)
+- **보안**: 내가 만든 오브젝트는 다른 트라이얼 사용자에게도 보임 → **실제 업무 데이터·회사 정보·자격증명 절대 금지**, 교육용 코드만
+
+### ⚠️ ABAP Cloud 언어 제약 — 만들 수 있는 것 / 없는 것
+
+BTP ABAP 환경은 **"ABAP for Cloud Development"라는 제한된 언어 버전만 허용** (트라이얼 한정이 아니라 유료 BTP ABAP 환경도 동일 — SAP가 의도적으로 클라우드에서는 모던 개발 모델만 쓰도록 설계한 것).
+
+**가능 ✅**
+
+- 데이터베이스 테이블 (ADT에서 생성, HANA 저장, 데이터 입력/조회 정상)
+- CDS View, 클래스, 인터페이스
+- RAP 기반 서비스 (Business Object, Service Definition/Binding → OData 노출)
+- → **Mock 시스템(테이블 + CDS + RAP/OData) 구축 및 외부 OData 호출 수신 시나리오 모두 가능**
+
+**불가 ❌ — ECC식 클래식 개발**
+
+| 클래식 ABAP | BTP (ABAP Cloud) 대체 수단 |
+|---|---|
+| Function Module (SE37) | 클래스 메서드 |
+| 리포트 프로그램 (`REPORT`, `WRITE`) | `if_oo_adt_classrun` 콘솔 클래스 |
+| Dynpro / Module Pool 화면 | Fiori Elements |
+| SAP GUI 트랜잭션 (SE80, SE11 등) | 모든 개발은 ADT(Eclipse)에서만 |
+| SAP 표준 테이블 직접 SELECT | released API / CDS만 접근 가능 |
+
+- Function Module은 "구식이라 없어진 것"이 아님 — 온프레미스 S/4HANA·ECC에서는 지금도 실무에서 대량 사용. BTP ABAP 환경(Steampunk)이 클라우드 확장 전용으로 설계되면서 처음부터 배제한 것
+- 따라서 **클래식 ABAP(FM, 리포트, GUI) 연습이 교육 목표에 포함된다면 BTP Trial로는 불가** — 이 갭은 인지할 것
+- 트라이얼이라서 추가로 걸리는 제약(유료면 풀림): Destination Service 미지원(아웃바운드), 공유 시스템, 리소스 쿼터, 90일 만료, 인스턴스 1개
+
+## 8. 이후 학습
 
 - [Learning Basic ABAP Programming (S4D400)](https://learning.sap.com/courses/basic-abap-programming) 코스 진행
 - 상세 학습 자료: `1_사전공부/README.md` 참고
@@ -96,4 +167,6 @@
 | 리전 | Singapore - Azure | 한국에서 최저 지연시간, ABAP 트라이얼 지원 |
 | IDE | Eclipse ADT (VS Code 아님) | 공식 툴링이 Eclipse 전용. 강의·튜토리얼 전부 Eclipse 기준. VS Code는 커뮤니티 확장만 있고 RAP/디버깅 지원 부족 |
 | Eclipse 아키텍처 | x86_64 | Intel i7-1165G7 (AMD64) |
+| Eclipse 패키지 | Eclipse IDE for Java Developers | SAP 공식 튜토리얼 기준. Enterprise/C++ 등은 불필요 |
+| 워크스페이스 위치 | 로컬 `C:\workspace` (git 저장소 밖) | 한글 경로 회피 + ABAP 소스는 서버 저장이라 git 추적 실익 없음 |
 | 90일 만료 대응 | 같은 계정으로 트라이얼 재생성 + abapGit 백업 | 연장 불가, 데이터 소멸되므로 코드 백업 필수 |
