@@ -90,6 +90,34 @@ ADT REST API(`/sap/bc/adt/`, Eclipse ADT 플러그인이 내부적으로 쓰는 
 
 > ⚠️ 인증 주의: BTP ABAP 환경(Steampunk)의 ADT API는 Basic Auth가 아니라 **OAuth(서비스 키 → JWT 토큰)** 방식. 위 MCP 서버들이 토큰 발급을 처리해주므로, BTP Cockpit에서 ABAP 인스턴스의 **서비스 키(Service Key) 발급**만 하면 됨.
 
+### MCP 서버 비교 — fr0ster/mcp-abap-adt (채택) vs oisee/vibing-steampunk (2026-07 조사)
+
+두 후보 모두 ADT REST API를 감싼 MCP 서버. 어떤 기능이 되고 안 되는지 비교:
+
+| 항목 | [fr0ster/mcp-abap-adt](https://github.com/fr0ster/mcp-abap-adt) v8.8.1 (채택) | [oisee/vibing-steampunk](https://github.com/oisee/vibing-steampunk) (vsp) |
+|---|---|---|
+| 구현/설치 | Node.js, npm 패키지 2개 (`core` + `connection`) | Go 단일 바이너리, 의존성 없음 |
+| 지원 시스템 | BTP ABAP Cloud(기본) + 온프레미스 ECC/S4 (`--system-type=onprem`, RFC 옵션) | 온프레미스 ECC/S4 중심 + BTP/Cloud (쿠키 인증으로) |
+| **BTP 인증** | ✅ **서비스 키 OAuth → JWT + refresh token 자동 갱신** (`sap-abap-auth` 브라우저 로그인 1회) | ⚠️ 브라우저에서 `__VCAP_ID__`/`JSESSIONID` **쿠키 수동 추출**. OAuth/서비스 키 미지원 → 세션 만료마다 재추출 |
+| 온프레미스 인증 | Basic Auth, RFC | Basic Auth, 쿠키, 브라우저 SSO(Kerberos/SAML/Keycloak) |
+| 권한 제어 | `--exposition` 세트 (readonly / high / low / compact)로 위험도별 노출 제어 | 모드별 도구 수 조절 (focused 100 / expert 147 / hyperfocused 1개 통합 툴) |
+| 소스·패키지·테이블 조회 | ✅ (Get*, SearchObject, GetTableContents) | ✅ |
+| 생성/수정/활성화 (클래스·CDS·테이블 등) | ✅ (Create*/Update*/Activate*) | ✅ |
+| RAP 개발 (BDEF/SRVD/SRVB) | ✅ 생성·수정·바인딩 | ✅ 생성·서비스 발행까지 |
+| SQL 쿼리 실행 | ✅ GetSqlQuery | ✅ 임의 ABAP SQL |
+| 유닛 테스트 실행 | ✅ RunUnitTest (+ CDS 유닛 테스트) | ✅ |
+| 임의 코드 실행 | ✅ RuntimeRunClass (`if_oo_adt_classrun` 실행) | ✅ ExecuteABAP (유닛 테스트 래퍼로 주입) |
+| **디버깅** (브레이크포인트·스택·변수) | ❌ 없음 | ✅ 외부 브레이크포인트, 스텝 실행, 변수 조회 (AMDP는 실험적) |
+| **ATC 검사** | ❌ 없음 | ✅ |
+| 정적 분석 | ✅ AST·시맨틱 분석, Where-Used, 버전 이력/diff | ✅ 콜그래프, dead code 탐지, 패키지 헬스 체크 |
+| 덤프·트레이스 | ✅ Runtime* (덤프 조회, 프로파일러 트레이스) | ✅ RABAX 덤프, ATRA 프로파일, ST05 SQL 트레이스 |
+| 트랜스포트 | ✅ Create/List/Get | ✅ 목록·상세 조회 |
+| **abapGit 연동** | ❌ 없음 (Eclipse 플러그인으로 별도 진행) | ✅ export/import |
+| 클래식 리포트/프로그램 | onprem 모드에서만 (BTP는 언어 제약상 원천 불가) | ✅ 온프레미스에서 |
+
+**채택 결론**: 기능 폭은 vsp가 더 넓지만(디버깅·ATC·abapGit), 이 프로젝트의 대상은 **BTP Trial**이라 인증 방식이 결정적 — vsp는 쿠키를 브라우저에서 수동 추출해야 하고 만료 시마다 반복해야 하는 반면, fr0ster는 서비스 키 기반 OAuth로 refresh token 자동 갱신이 되어 **무인 연동에 적합**. 디버깅·ATC가 필요해지면 Eclipse ADT에서 직접 수행하면 됨 (vsp가 없어도 학습 목적에는 공백 아님)
+- vsp 참고 자료: [README_TOOLS.md (96개 도구 문서)](https://github.com/oisee/vibing-steampunk/blob/main/README_TOOLS.md), [SAP 커뮤니티 세팅 후기](https://community.sap.com/t5/technology-blog-posts-by-members/try-vibing-steampunk-to-generate-abap-setting-up-vsp-with-a-cal-instance/ba-p/14341656)
+
 ### 목적 2 — 외부에서 OData 호출 → BTP Trial이 수신: 가능, 표준 경로 존재
 
 1. RAP으로 서비스 개발 → **Service Binding**(OData V2/V4 Web API) 생성 → 외부 접근 가능한 URL 발급

@@ -5,7 +5,7 @@
       "args": [
         "--transport=stdio",
         "--env-path=C:\\Users\\재택\\Documents\\mcp-abap-adt\\sessions\\TRIAL.env",
-        "--exposition=readonly,high,low"
+        "--exposition=readonly,high"
       ]
     }
   }
