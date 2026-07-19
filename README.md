@@ -10,6 +10,7 @@ SAP BTP Trial 계정을 연결하여 ABAP Agent를 만들기 위한 프로젝트
 | [docs/project-premise.md](docs/project-premise.md) | 핵심 전제(BTP Trial 기준)와 개발 환경 |
 | [docs/setup-guide.md](docs/setup-guide.md) | BTP Trial + Eclipse/ADT + abapGit + MCP 세팅 절차·트러블슈팅 |
 | [docs/research-notes.md](docs/research-notes.md) | 조사·의사결정 기록 — 왜 이 환경/도구를 선택했는가 |
+| [docs/workflow-rules.md](docs/workflow-rules.md) | 작업 단위 규칙 — 작업별 폴더 + 브랜치 운용 |
 
 ## 폴더 구조
 
