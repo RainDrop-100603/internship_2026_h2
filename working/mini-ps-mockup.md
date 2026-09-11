@@ -22,6 +22,15 @@
 |WBS Template|기본 WBS 구조|WBS Template|
 |Vessel Type Required|선박 타입 입력 필요 여부|-|
 
+## Project Profile Master
+|Profile Code|Profile Name|Description|Initial Status|WBS Template|Vessel Type Required|
+|---|---|---|---|---|---|
+|SHIP|신규 선박 건조|신규 선박 건조 프로젝트|CRTD|SHIP_STD|Y|
+|REPR|기존 선박 수리|기존 선박 수리 프로젝트|CRTD|REPR_STD|Y|
+|CNVT|기존 선박 개조|기존 선박 개조 프로젝트|CRTD|CNVT_STD|Y|
+|RND|기술·공법 연구개발|기술 및 공법 연구개발 프로젝트|CRTD|RND_STD|N|
+|FAC|생산 설비 구축 및 개선|생산 설비 구축·개선 프로젝트|CRTD|FAC_STD|N|
+
 ## WBS 속성 정보
 |속성|설명|참조|
 |---|---|---|
@@ -144,15 +153,6 @@
 |OUT|의장품|Outfitting Material|
 
 ## Master Data
-### Project Profile Master
-|Profile Code|Profile Name|Description|Initial Status|WBS Template|Vessel Type Required|
-|---|---|---|---|---|---|
-|SHIP|신규 선박 건조|신규 선박 건조 프로젝트|CRTD|SHIP_STD|Y|
-|REPR|기존 선박 수리|기존 선박 수리 프로젝트|CRTD|REPR_STD|Y|
-|CNVT|기존 선박 개조|기존 선박 개조 프로젝트|CRTD|CNVT_STD|Y|
-|RND|기술·공법 연구개발|기술 및 공법 연구개발 프로젝트|CRTD|RND_STD|N|
-|FAC|생산 설비 구축 및 개선|생산 설비 구축·개선 프로젝트|CRTD|FAC_STD|N|
-
 ### Employee Master(사원 마스터)
 |속성|설명|참조|
 |---|---|---|
