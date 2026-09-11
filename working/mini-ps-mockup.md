@@ -264,7 +264,7 @@
 SHIP_STD 외 WBS Template: TBD
 
 ## ERD
-![alt text](image-2.png)
+![alt text](image-3.png)
 
 ## DB 테이블
 |구분|Table|
