@@ -107,16 +107,17 @@
 |CRU|크루즈선|Cruise Ship|
 
 ### Process Category Code Master
-|Code|Name|비고
+|Code|Name|비고|
 |---|---|---|
-DSG|설계|Design
-MAT|자재/조달|Material & Procurement|
-FAB|가공|Fabrication|
-ASM|조립|Assembly|
-ERE|탑재|Erection|
-OUT|의장|Outfitting|
-PNT|도장|Painting|
-TST|검사/시험|Inspection & Testing|
+|DSG|설계|Design|
+|MAT|자재/조달|Material & Procurement|
+|FAB|가공|Fabrication|
+|ASM|조립|Assembly|
+|ERE|탑재|Erection|
+|OUT|의장|Outfitting|
+|PNT|도장|Painting|
+|TST|검사/시험|Inspection & Testing|
+
 ### Department Code Master
 |Code|Name|비고|
 |---|---|---|
@@ -144,13 +145,14 @@ TST|검사/시험|Inspection & Testing|
 
 ## Master Data
 ### Project Profile Master
-|Code|Name|비고|
-|---|---|---|
-|SHIP|신규 선박 건조|New Shipbuilding|
-|REPR|기존 선박 수리|Ship Repair|
-|CNVT|기존 선박 개조|Ship Conversion|
-|RND|기술·공법 연구개발|R&D Project|
-|FAC|생산 설비 구축 및 개선|Facility Investment|
+|Profile Code|Profile Name|Description|Initial Status|WBS Template|Vessel Type Required|
+|---|---|---|---|---|---|
+|SHIP|신규 선박 건조|신규 선박 건조 프로젝트|CRTD|SHIP_STD|Y|
+|REPR|기존 선박 수리|기존 선박 수리 프로젝트|CRTD|REPR_STD|Y|
+|CNVT|기존 선박 개조|기존 선박 개조 프로젝트|CRTD|CNVT_STD|Y|
+|RND|기술·공법 연구개발|기술 및 공법 연구개발 프로젝트|CRTD|RND_STD|N|
+|FAC|생산 설비 구축 및 개선|생산 설비 구축·개선 프로젝트|CRTD|FAC_STD|N|
+
 ### Employee Master(사원 마스터)
 |속성|설명|참조|
 |---|---|---|
@@ -183,7 +185,7 @@ TST|검사/시험|Inspection & Testing|
 
 
 ## WBS Template
-### Shipbuilding Standard WBS Template
+### Shipbuilding Standard WBS Template (SHIP_STD)
 1. 설계
     - 1.1 기본 설계
        - 1.1.1 선박 사양 정의
@@ -258,6 +260,8 @@ TST|검사/시험|Inspection & Testing|
     - 5.3 최종 검사 및 인도
        - 5.3.1 선주 최종 검사
        - 5.3.2 최종 인도
+
+SHIP_STD 외 WBS Template: TBD
 
 ## ERD
 ![alt text](image-2.png)
