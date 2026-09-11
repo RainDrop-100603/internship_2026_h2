@@ -4,13 +4,13 @@
 |프로젝트 ID| 프로젝트 고유 ID| - |
 |프로젝트명|프로젝트 이름|-|
 |프로젝트 프로파일|프로젝트 유형|Project Profile Master|
-|선박 타입|건조할 선박 종류|Vessel Type Master|
+|선박 타입|건조할 선박 종류|Vessel Type Code Master|
 |프로젝트 관리자|프로젝트 담당 PM|Employee Master|
 |발주처|프로젝트를 발주한 고객사|Customer Master|
 |계약 금액|프로젝트 계약 금액|-|
 |프로젝트 시작일|시작일|-|
 |프로젝트 종료일|종료일|-|
-|프로젝트 상태|CRTD/REL/TECO/CLSD|Project Status Master|
+|프로젝트 상태|CRTD/REL/TECO/CLSD|Project Status Code Master|
 
 ## Project Profile 속성정보
 |속성|설명|참조|
