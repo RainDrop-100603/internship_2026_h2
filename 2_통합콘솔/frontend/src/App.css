@@ -331,6 +331,35 @@
   gap: 6px;
 }
 
+.log-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.log-panel__toggle {
+  min-width: 48px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  font: inherit;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.log-panel__toggle:hover {
+  border-color: #9ca3af;
+  background: #f3f4f6;
+}
+
+.log-panel__toggle:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
 .log-panel__dot {
   width: 6px;
   height: 6px;

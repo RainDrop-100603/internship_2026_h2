@@ -123,6 +123,9 @@ function beginAgentRun(task, { agent, kind, config }) {
     requestedModel: config.model,
     effort: config.effort,
     actualModels: [],
+    actualEffort: null,
+    modelSource: null,
+    effortSource: null,
     status: "running",
     usage: null,
     estimatedCostUsd: null,
@@ -132,6 +135,23 @@ function beginAgentRun(task, { agent, kind, config }) {
   };
   task.runs.push(run);
   return run;
+}
+
+export function applyClaudeRuntimeMetadata(run, message) {
+  if (!run || message?.type !== "system" || message?.subtype !== "init") return false;
+
+  let changed = false;
+  if (message.model && !run.actualModels.includes(message.model)) {
+    run.actualModels.push(message.model);
+    run.modelSource = "reported";
+    changed = true;
+  }
+  if (message.effort && run.actualEffort !== message.effort) {
+    run.actualEffort = message.effort;
+    run.effortSource = "reported";
+    changed = true;
+  }
+  return changed;
 }
 
 function publishRun(task, run, broadcast) {
@@ -168,6 +188,7 @@ function applyClaudeResult(run, message) {
   }
 
   run.actualModels = [...actualModels];
+  if (modelEntries.length > 0) run.modelSource = "reported";
   run.usage = modelEntries.length > 0 ? usage : null;
   run.estimatedCostUsd = Number.isFinite(message.total_cost_usd)
     ? message.total_cost_usd
@@ -354,9 +375,14 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
 }
 
 function handleMessage(task, message, broadcast, agentRun) {
+  if (applyClaudeRuntimeMetadata(agentRun, message)) {
+    publishRun(task, agentRun, broadcast);
+  }
+
   if (message.type === "assistant") {
     if (message.message?.model && agentRun && !agentRun.actualModels.includes(message.message.model)) {
       agentRun.actualModels.push(message.message.model);
+      agentRun.modelSource = "reported";
     }
     for (const block of message.message?.content ?? []) {
       if (block.type === "text" && block.text?.trim()) {
@@ -759,6 +785,9 @@ export function requestCodexReview({ id, extraInstruction, reviewsRoot }, broadc
       agentRun.usage = result.usage ?? null;
       agentRun.threadId = result.threadId ?? null;
       agentRun.actualModels = codexConfig.model === "default" ? [] : [codexConfig.model];
+      agentRun.actualEffort = codexConfig.effort ?? null;
+      agentRun.modelSource = codexConfig.model === "default" ? null : "configured";
+      agentRun.effortSource = codexConfig.effort ? "configured" : null;
       agentRun.completedAt = new Date().toISOString();
       task.review = {
         status: "done",

@@ -4,7 +4,7 @@
       "command": "mcp-abap-adt",
       "args": [
         "--transport=stdio",
-        "--env-path=C:\\Users\\재택\\Documents\\mcp-abap-adt\\sessions\\TRIAL.env",
+        "--env-path=C:\\Users\\limuj\\Documents\\mcp-abap-adt\\sessions\\TRIAL.env",
         "--exposition=readonly,high"
       ]
     }

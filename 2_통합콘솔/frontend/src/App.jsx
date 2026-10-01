@@ -141,8 +141,25 @@ function runKindLabel(kind) {
 }
 
 function displayRunModel(run) {
-  if (run.actualModels?.length) return run.actualModels.join(", ");
-  return run.requestedModel === "default" ? "기본 모델" : run.requestedModel;
+  if (run.actualModels?.length) {
+    const label = run.modelSource === "configured" ? "적용 모델" : "실제 모델";
+    return { label, value: run.actualModels.join(", ") };
+  }
+  if (run.status === "running") {
+    const requested = run.requestedModel === "default" ? "기본 모델" : run.requestedModel;
+    return { label: "요청 모델", value: requested };
+  }
+  const fallback = run.requestedModel === "default" ? "기본 모델 (ID 확인 불가)" : `${run.requestedModel} (설정값)`;
+  return { label: "실행 모델", value: fallback };
+}
+
+function displayRunEffort(run) {
+  if (run.actualEffort) {
+    const label = run.effortSource === "reported" ? "실제 effort" : "적용 effort";
+    return { label, value: run.actualEffort };
+  }
+  if (run.status === "running") return { label: "요청 effort", value: run.effort || "기본값" };
+  return { label: "설정 effort", value: run.effort || "기본값" };
 }
 
 function displayConfig(config) {
@@ -153,11 +170,14 @@ function displayConfig(config) {
 
 function UsageEntry({ run }) {
   const usage = run.usage;
+  const model = displayRunModel(run);
+  const effort = displayRunEffort(run);
   return (
     <div className="usage-entry">
       <div className="usage-entry__identity">
         <strong>{agentLabel(run.agent)} · {runKindLabel(run.kind)}</strong>
-        <span>{displayRunModel(run)} · {run.effort || "기본 effort"}</span>
+        <span>{model.label} {model.value}</span>
+        <span>{effort.label} {effort.value}</span>
       </div>
       {usage ? (
         <div className="usage-entry__tokens">
@@ -213,6 +233,7 @@ function App() {
   const [abortPending, setAbortPending] = useState(false);
   const [cleanupPending, setCleanupPending] = useState(false);
   const [openFolderPending, setOpenFolderPending] = useState(false);
+  const [isLogExpanded, setIsLogExpanded] = useState(true);
   const [artifactsCleaned, setArtifactsCleaned] = useState(false);
   const [taskAgentConfig, setTaskAgentConfig] = useState(null);
   const [taskRuns, setTaskRuns] = useState([]);
@@ -987,16 +1008,29 @@ function App() {
       <section className="log-panel">
         <div className="log-panel__head">
           <span className="log-panel__title">CLAUDE 작업 로그</span>
-          <span className="log-panel__meta">
-            <span className="log-panel__dot" />
-            {STATUS_LABEL[taskStatus] ?? taskStatus}
-          </span>
+          <div className="log-panel__actions">
+            <span className="log-panel__meta">
+              <span className="log-panel__dot" />
+              {STATUS_LABEL[taskStatus] ?? taskStatus}
+            </span>
+            <button
+              type="button"
+              className="log-panel__toggle"
+              onClick={() => setIsLogExpanded((expanded) => !expanded)}
+              aria-expanded={isLogExpanded}
+              aria-controls="claude-task-log"
+            >
+              {isLogExpanded ? "접기" : "펼치기"}
+            </button>
+          </div>
         </div>
-        <div className="log-panel__body">
-          {displayLog.map((line, i) => (
-            <LogLine key={i} role={line.role} text={line.text} />
-          ))}
-        </div>
+        {isLogExpanded && (
+          <div className="log-panel__body" id="claude-task-log">
+            {displayLog.map((line, i) => (
+              <LogLine key={i} role={line.role} text={line.text} />
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="session-bar">
