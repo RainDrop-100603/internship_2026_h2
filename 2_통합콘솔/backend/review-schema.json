@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "file": { "type": "string" },
+          "line": { "type": ["integer", "null"] },
+          "severity": { "type": "string", "enum": ["blocker", "warning", "suggestion"] },
+          "message": { "type": "string" }
+        },
+        "required": ["file", "line", "severity", "message"]
+      }
+    }
+  },
+  "required": ["summary", "findings"]
+}
