@@ -39,6 +39,7 @@
 |Project ID|소속 프로젝트|Project|
 |Parent WBS ID|상위 WBS|WBS|
 |WBS Level|계층 수준|-|
+|WBS 상태|CRTD/REL/TECO/CLSD. 생성 시 CRTD|WBS Status Code Master|
 
 ## WBS Template 속성 정보
 |속성|설명|참조|
@@ -66,7 +67,7 @@
 |Responsible Employee ID|담당자|Employee Master|
 |Start Date|시작일|-|
 |End Date|종료일|-|
-|Activity Status Code|Activity 진행 상태|Activity Status Code Master|
+|Activity Status Code|Activity 진행 상태 (실행 가능 여부는 소속 WBS 상태로 판단)|Activity Status Code Master|
 
 ## Code Master
 ### Project Status Code Master
@@ -78,6 +79,21 @@
 |CLSD|Closed|마감/종료|
 
 ### Project Status Transition
+|From|To|
+|---|---|
+|CRTD|REL|
+|REL|TECO|
+|TECO|CLSD|
+
+### WBS Status Code Master
+|Code|Name|비고|
+|---|---|---|
+|CRTD|Created|WBS 생성|
+|REL|Released|WBS 실행 가능 (Activity 착수 가능)|
+|TECO|Technically Completed|기술적 완료 (진행 중 Activity 완료만 가능)|
+|CLSD|Closed|마감/종료 (조회만 가능)|
+
+### WBS Status Transition
 |From|To|
 |---|---|
 |CRTD|REL|
@@ -281,6 +297,8 @@ SHIP_STD 외 WBS Template: TBD
 |Master|WORK_CENTER|
 |Code|PROJECT_STATUS|
 |Control|PROJECT_STATUS_TRANSITION|
+|Code|WBS_STATUS|
+|Control|WBS_STATUS_TRANSITION|
 |Code|ACTIVITY_STATUS|
 |Control|ACTIVITY_STATUS_TRANSITION|
 |Code|COUNTRY|
