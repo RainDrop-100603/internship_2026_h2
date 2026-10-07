@@ -9,6 +9,7 @@
 ![Architecture Diagram](flow/flows-02.drawio.svg)
 - 02-03: WBS Template 적용 체크박스
 - 02-04 검증: 필수값 입력, 시작일 ≤ 종료일
+- 02-06~02-07: Template 적용을 선택했으면 Template으로 WBS 생성, 프로젝트와 함께 저장
 
 ### PS-03 WBS 구성
 ![Architecture Diagram](flow/flows-03.drawio.svg)
@@ -24,18 +25,21 @@
 - 04-03 검증 
     - 프로젝트, WBS가 TECO/CLSD 아님
     - 작업장은 Work Center, 담당자는 Employee에 존재
-    - 시작일 ≤ 종료일 
-    - 일정이 프로젝트 기간 안에 있음
+    - 시작일 ≤ 종료일
 
 ### PS-05 프로젝트·WBS Release
 ![Architecture Diagram](flow/flows-05.drawio.svg)
 
 - 05-01 
     - 프로젝트나 상위 WBS가 CRTD여도 먼저 착수할 하위 WBS만 골라 Release 가능(부분 Release)
-    - 상위가 TECO·CLSD인 범위는 차단
+    - 05-02 검증
+    - 대상이 CRTD
+    - 프로젝트·상위 WBS가 TECO·CLSD인 범위는 차단
 - 05-03 
     - 하위 WBS가 없으면 팝업 없이 05-05 
-    - 하위 CRTD WBS는 자동으로 함께 REL (SAP 표준 상속)
+- 05-05
+    - 대상과 하위 CRTD WBS가 자동으로 함께 REL
+    - 상위 WBS·프로젝트와 Activity 상태는 바뀌지 않음
 
 ### PS-06 작업 실행
 ![Architecture Diagram](flow/flows-06.drawio.svg)
@@ -54,13 +58,13 @@
 
 - 07-03 
     - 하위 WBS가 없으면 팝업 없이 07-05
-    - 하위 REL WBS ->TECO, 
-    - 하위 CRTD WBS는 변경 X
 
 - 07-05~07-07 
     - 미완료 Activity가 있으면 경고, 확인하면 진행
 
 - 07-08 
+    - 대상과 하위 REL WBS -> TECO
+    - 하위 CRTD WBS는 변경 X
     - 남은 Activity는 상태 유지, 진행 중인 것만 완료 가능
     - Activity 완료만으로 자동 TECO 되지 않음
 
