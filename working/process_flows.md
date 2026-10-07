@@ -3,7 +3,8 @@
 
 ### PS-01 기준정보 등록
 ![Architecture Diagram](flow/flows-01.drawio.svg)
-- 01-03 검증: 필수값 입력, 코드값 Code Master 존재 여부, ID 중복 없음
+- 01-03 검증: 필수값 입력, 코드값 Code Master 존재 여부
+- 01-04: 고유 ID 자동 생성 후 저장
 
 ### PS-02 프로젝트 생성
 ![Architecture Diagram](flow/flows-02.drawio.svg)
@@ -36,7 +37,7 @@
     - 대상이 CRTD
     - 프로젝트·상위 WBS가 TECO·CLSD인 범위는 차단
 - 05-03 
-    - 하위 WBS가 없으면 팝업 없이 05-05 
+    - 상태가 바뀔 하위 WBS가 없으면 팝업 없이 05-05 
 - 05-05
     - 대상과 하위 CRTD WBS가 자동으로 함께 REL (SAP 표준 상속)
     - 상위 WBS·프로젝트와 Activity 상태는 바뀌지 않음
@@ -60,7 +61,7 @@
 - 07-02 검증
     - 대상이 REL
 - 07-03 
-    - 하위 WBS가 없으면 팝업 없이 07-05
+    - 상태가 바뀔 하위 WBS가 없으면 팝업 없이 07-05
 
 - 07-05~07-07 
     - 미완료 Activity가 있으면 경고, 확인하면 진행
@@ -77,5 +78,7 @@
 
 - 08-02 검증 
     - 프로젝트 상태 TECO
+- 08-03 
+    - 진행 중(PROC) Activity가 남아 있으면 건수를 함께 경고
 - 08-05 
     - 프로젝트와 하위 WBS 모두 CLSD, 이후 프로젝트·WBS·Activity는 조회만 가능
