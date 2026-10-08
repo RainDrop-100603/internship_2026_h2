@@ -79,14 +79,14 @@
 
 | BR | 규칙 |
 |---|---|
-| BR-01 | 상태 전이는 Transition 테이블에 정의된 것만 허용한다. Project·WBS는 CRTD→REL→TECO→CLSD, Activity는 PLAN→PROC, PROC→COMP, PROC→HOLD, HOLD→PROC. 역행·건너뛰기·COMP→PROC(완료 취소)는 없다. | 
+| BR-01 | 상태 전이는 Transition 테이블에 정의된 것만 허용한다. Project·WBS의 일반 전이는 CRTD→REL→TECO→CLSD, Activity는 PLAN→PROC, PROC→COMP, PROC→HOLD, HOLD→PROC이다. 예외로 WBS CRTD→CLSD를 프로젝트 일괄 종료 전용 전이로 정의한다(BR-08). 개별 요청으로 이 예외를 실행할 수 없으며 서버에서 실행 맥락을 검증한다. 그 외 역행·건너뛰기·COMP→PROC(완료 취소)는 없다. |
 | BR-02 | 초기 상태: Project는 프로파일의 Initial Status(현재 모두 CRTD), WBS는 수동·템플릿 생성 모두 CRTD, Activity는 PLAN. 상태는 직접 입력할 수 없다. | 
-| BR-03 | 상태 전파: 프로젝트·WBS를 Release하거나 기술 완료하면 그 아래 WBS 중 전이 가능한 것(Release는 CRTD, 기술 완료는 REL)이 자동으로 함께 바뀐다. 함께 바뀔 하위 WBS가 1건 이상이면 변경 건수를 확인 팝업(CM-07)으로 보여주고, 0건이면 팝업 없이 진행한다. 상위 WBS·프로젝트 상태는 바꾸지 않고, Activity 상태도 바꾸지 않는다. | 
+| BR-03 | 상태 전파: 프로젝트·WBS를 Release하거나 기술 완료하면 아래 WBS 중 전이 가능한 것(Release는 CRTD, 기술 완료는 REL)이 함께 바뀐다. TECO·CLSD인 WBS를 만나면 해당 WBS와 그 아래 전체를 제외한다. 그 외 상태가 다른 노드는 유지하되 하위 탐색은 계속한다(예: CRTD 아래 REL도 기술 완료 대상). 함께 바뀔 하위 WBS가 1건 이상이면 실제 변경 건수를 확인 팝업(CM-07)으로 보여주고, 0건이면 팝업 없이 진행한다. 상위 WBS·프로젝트와 Activity 상태는 바꾸지 않는다. 이 제외 규칙은 Release·기술 완료에 적용하며 프로젝트 종료는 BR-08을 별도로 따른다. |
 | BR-04 | Release는 대상(프로젝트 또는 WBS)이 CRTD이면 가능하다. 상위 WBS나 프로젝트가 아직 CRTD여도 먼저 착수할 하위 WBS만 개별 Release할 수 있다(부분 Release). 단, 프로젝트나 상위 WBS가 TECO·CLSD인 범위는 BR-09로 차단한다. WBS가 없어도 프로젝트를 Release할 수 있다. | 
 | BR-05 | 기술 완료(TECO)는 담당자가 요청하며 대상이 REL일 때만 가능하다. 하위 REL WBS는 BR-03에 따라 함께 TECO가 되고, 하위 중 CRTD인 WBS는 그대로 두며 BR-09에 따라 잠긴다. 하위 WBS의 완료 순서 제약과 Activity 건수 조건은 없다. | 
-| BR-06 | 이번에 TECO가 되는 WBS(대상과, 함께 TECO가 되는 하위 REL WBS)에 COMP가 아닌 Activity(PLAN·PROC·HOLD)가 있으면 차단하지 않고 경고 팝업으로 목록을 보여준다. CRTD로 남아 잠기는 하위 WBS의 Activity는 세지 않는다. 담당자가 확인하면 그대로 TECO 처리한다. 남은 Activity는 상태를 유지하며, TECO 이후에는 PROC Activity의 완료(PROC→COMP)만 허용하고 착수·보류·재개는 BR-10에 따라 차단한다. |
+| BR-06 | 기술 완료 확인 시 (1) 이번에 TECO가 되는 WBS의 미완료 Activity(PLAN·PROC·HOLD)와 (2) 이번 완료로 CRTD에 남아 잠기는 WBS 및 그 소속 Activity를 구분해 건수·목록을 보여준다. (2)는 Activity가 0건인 WBS도 표시한다. 이미 TECO·CLSD인 WBS 아래처럼 기존에 잠긴 범위는 새로 잠기는 범위에서 제외한다. 두 그룹 중 하나라도 있으면 경고하며 담당자 확인 시 진행, 취소 시 전체 상태를 유지한다. TECO 대상의 PROC는 완료만 가능하고 PLAN·HOLD는 착수·재개 불가하며, CRTD로 잠기는 WBS의 Activity는 상태 변경 불가함을 안내한다. Activity 상태 자체는 변경하지 않는다. |
 | BR-07 | Activity가 모두 완료되어도 WBS·프로젝트는 자동으로 TECO가 되지 않는다. Activity 완료는 해당 Activity만 COMP로 변경한다. | 
-| BR-08 | 프로젝트 종료(CLSD)는 TECO 상태에서만 허용한다. 담당자 확인 후 프로젝트·모든 WBS를 함께 CLSD로 저장하며 전체 성공 또는 전체 취소로 처리한다. 종료 확인 팝업에서 진행 중(PROC) Activity가 남아 있으면 건수를 경고로 함께 보여주고, 확인하면 그대로 종료한다. |
+| BR-08 | 프로젝트 종료는 Project TECO, 전체 Activity 중 PROC 0건, 하위 WBS 중 REL 0건일 때만 허용한다. PROC가 있으면 완료 후 재요청하도록 차단하고, REL WBS가 있으면 상태 정합성 확인을 요청하며 차단한다. PLAN·HOLD Activity와 CRTD WBS의 목록·건수를 종료 팝업에 표시한다. 하나라도 있으면 미수행 범위 마감 확인과 공백이 아닌 사유를 필수로 받는다. 담당자 최종 확인 후 Project와 TECO·CRTD WBS를 CLSD로 변경하며 기존 CLSD WBS는 유지한다. CRTD→CLSD는 Mini PS의 프로젝트 일괄 종료 전용 예외이다. Activity는 기존 상태를 보존하며 자동 COMP 처리하지 않는다. 상태 변경과 종료 이력 저장은 전체 성공 또는 전체 취소로 처리한다. 종료 후 모든 업무 데이터는 조회만 허용한다. |
 | BR-09 | 프로젝트·해당 WBS·모든 상위 WBS가 CRTD 또는 REL인 범위에서만 WBS·Activity를 등록·수정한다. TECO/CLSD 범위는 WBS·Activity 등록·수정을 차단한다. Activity 상태 변경은 BR-10을 따른다(TECO 범위에서는 완료만 가능). 프로젝트 TECO 이후에는 조회, 진행 중 Activity 완료, 최종 종료만, CLSD 이후에는 조회만 허용한다. | 
 | BR-10 | Activity 상태 변경은 직속(소속) WBS 상태만 검사한다. 착수(PLAN→PROC)·보류(PROC→HOLD)·재개(HOLD→PROC)는 직속 WBS가 REL일 때, 완료(PROC→COMP)는 직속 WBS가 REL 또는 TECO일 때 가능하고, CLSD이면 모두 차단한다. | 
 | BR-11 | 저장 시 최신 상태와 하위 데이터를 재검증한다(오래된 화면의 잘못된 전이 방지). Release·기술 완료로 하위를 일괄 변경하는 동안 같은 범위의 WBS·Activity 등록·수정이 끼어들지 않도록 잠금 또는 동등한 동시성 제어로 보호한다. 여러 건 저장은 전체 성공 또는 전체 취소. | 
@@ -97,10 +97,11 @@
 |---|---|---|---|---|---|---|
 | Project | CRTD → REL | CRTD | - | 없음 (WBS 0건도 가능) | 하위 CRTD WBS → REL | BR-03, BR-04 |
 | Project | REL → TECO | REL | - | 없음. 미완료 Activity는 경고 | 하위 REL WBS → TECO (CRTD WBS는 유지·잠금) | BR-03, BR-05, BR-06 |
-| Project | TECO → CLSD | TECO | - | 없음 | 모든 WBS → CLSD | BR-08 |
+| Project | TECO → CLSD | TECO | - | PROC Activity 0건·REL WBS 0건. PLAN·HOLD 또는 CRTD WBS가 있으면 사유 및 미수행 마감 확인 필수 | TECO·CRTD WBS → CLSD, 기존 CLSD 유지 | BR-01, BR-08 |
 | WBS | CRTD → REL | CRTD | 프로젝트·상위 WBS가 TECO·CLSD 아님 | 없음 | 하위 CRTD WBS → REL | BR-03, BR-04, BR-09 |
 | WBS | REL → TECO | REL | 없음 | 없음. 미완료 Activity는 경고 | 하위 REL WBS → TECO | BR-03, BR-05, BR-06 |
-| WBS | TECO → CLSD | - | - | - | 개별 종료 없음, 프로젝트 종료 시 함께 | BR-08 |
+| WBS | TECO → CLSD | TECO | 프로젝트 일괄 종료(BR-08) | 프로젝트 전체 종료 조건 충족 | 개별 종료 없음 | BR-08 |
+| WBS | CRTD → CLSD (예외) | CRTD | 프로젝트 일괄 종료(BR-08) 및 미수행 마감 확인·사유 | 프로젝트 전체 종료 조건 충족 | 개별 실행 불가. 기존 Activity 상태 유지 | BR-01, BR-08 |
 | Activity | PLAN → PROC | PLAN | 직속 WBS = REL | - | 없음 | BR-01, BR-10 |
 | Activity | PROC → HOLD | PROC | 직속 WBS = REL | - | 없음 | BR-01, BR-10 |
 | Activity | HOLD → PROC | HOLD | 직속 WBS = REL | - | 없음 | BR-01, BR-10 |
@@ -220,8 +221,8 @@
 | 수정 | 상태 CRTD·REL (BR-09) | 편집 모드 전환 | - | - |
 | 저장 | 편집 모드 | 입력 검증 후 기본정보 저장 | - | PRJ03-M01 / CM-01, CM-03, CM-05 |
 | Release | 상태 CRTD | 프로젝트와 하위 CRTD WBS → REL (BR-03, BR-04) | 함께 바뀔 하위 WBS가 있으면 확인 팝업(CM-07) | PRJ03-M02 / CM-04, PRJ03-M03, CM-05 |
-| 기술 완료 | 상태 REL | 프로젝트와 하위 REL WBS → TECO (BR-03, BR-05) | 함께 바뀔 하위 WBS가 있으면 확인 팝업(CM-07) → 미완료 Activity가 있으면 경고 팝업(계속/취소) (BR-06) | PRJ03-M02 / PRJ03-M04(경고), CM-04, PRJ03-M03, CM-05 |
-| 종료 | 상태 TECO | BR-08: 프로젝트·하위 WBS 함께 CLSD | 확인: 종료 후 조회만 가능함을 안내. 진행 중 Activity가 있으면 건수 경고 포함 (BR-08) | PRJ03-M02 / PRJ03-M05(경고), CM-04, PRJ03-M03, CM-05 |
+| 기술 완료 | 상태 REL | 프로젝트와 하위 REL WBS → TECO (BR-03, BR-05) | 함께 바뀔 하위 WBS가 있으면 확인 팝업(CM-07) → 미완료 Activity 또는 새로 잠기는 CRTD WBS가 있으면 경고 팝업(계속/취소) (BR-06) | PRJ03-M02 / PRJ03-M04(경고), CM-04, PRJ03-M03, CM-05 |
+| 종료 | 상태 TECO | 최신 상태·하위 데이터 검증 후 프로젝트와 TECO·CRTD WBS를 CLSD로 변경하고 이력 저장(BR-08) | 미수행 범위 목록·건수, 조건부 필수 사유 및 마감 확인, 최종 종료 확인. 취소 시 변경 없음 | PRJ03-M02 / PRJ03-M05, PRJ03-M06, PRJ03-M07, CM-04, PRJ03-M03, CM-05 |
 | WBS 관리 | 항상 | 해당 프로젝트의 WBS-01 이동 | - | - |
 | 목록 | 항상 | PRJ-01 복귀 | - | - |
 
@@ -229,7 +230,26 @@
 - 상태 버튼은 저장 시점에 최신 상태를 다시 검증한다(BR-11). 다른 사용자가 먼저 바꾼 경우 PRJ03-M03.
 - 프로젝트 TECO 이후 등록·수정은 차단하고 진행 중 Activity 완료만 허용, CLSD 이후 조회만(BR-09, BR-10).
 
-**메시지**: PRJ03-M01 프로젝트 정보가 저장되었습니다. / PRJ03-M02 상태가 변경되었습니다. / PRJ03-M03 프로젝트 상태가 변경되었습니다. 새로 조회해주세요. / PRJ03-M04 완료되지 않은 Activity가 n건 있습니다. 기술 완료하면 진행 중인 작업의 완료만 가능하고 착수·재개는 할 수 없습니다. 계속하시겠습니까? (경고, 건수는 BR-06 기준) / PRJ03-M05 진행 중인 Activity가 n건 있습니다. 종료하면 완료 처리할 수 없습니다. 계속하시겠습니까? (경고)
+**종료 확인 및 이력**
+- 종료 팝업에 PLAN·HOLD Activity와 CRTD WBS를 각각 목록·건수로 표시한다. Activity가 없는 CRTD WBS도 포함한다. HOLD는 일부 수행 후 중단된 작업일 수 있으므로 완료된 작업으로 표시하지 않는다.
+- 미수행 범위가 있으면 해당 목록 전체를 대상으로 하는 마감 사유와 명시적 동의를 필수로 받는다. 없으면 사유는 선택이며 최종 종료 확인은 항상 받는다. Activity 완료와 미수행 범위 마감은 구분한다.
+- 종료 이력에는 프로젝트 ID, 실행 사용자, 서버 기준 종료 시각, 사유·미수행 마감 확인 여부, 미수행 WBS·Activity의 ID와 당시 상태, 변경 WBS의 이전·이후 상태를 기록한다. 종료 후 상세 화면에서 읽기 전용으로 조회한다. 물리 테이블명은 구현 설계에서 정한다.
+- 확인 팝업 이후 종료 저장 시 조건과 대상 목록을 재검증한다. 확인한 범위가 달라졌으면 다시 확인받는다. 종료와 같은 범위의 Activity 상태 변경·WBS 변경은 공통 동시성 제어로 보호하고 종료 이력까지 원자적으로 저장한다.
+
+**종료 테스트 시나리오**
+- CLOSE-01: Project가 TECO가 아니면 종료 차단.
+- CLOSE-02: PROC Activity가 1건이라도 있으면 차단. TECO WBS 아래 PROC를 COMP로 완료한 뒤 재요청 가능.
+- CLOSE-03: REL WBS가 남아 있으면 차단.
+- CLOSE-04: PLAN·HOLD Activity 또는 CRTD WBS가 있으면 목록 표시. 사유 공백 또는 미수행 마감 미동의 시 차단.
+- CLOSE-05: 미수행 범위 확인·사유 입력 후 종료 성공. CRTD·TECO WBS는 CLSD, 기존 CLSD는 유지, Activity 상태는 보존.
+- CLOSE-06: 미수행 범위가 없으면 사유 없이 최종 확인으로 종료 가능. WBS·Activity가 0건이어도 동일 조건 적용.
+- CLOSE-07: 개별 WBS의 CRTD→CLSD 요청은 거부.
+- CLOSE-08: 팝업 취소 시 상태·이력 변경 없음. 저장 실패 시 상태와 이력 모두 롤백.
+- CLOSE-09: 확인 후 대상 변경 시 재확인. 동시 요청으로 종료 조건을 우회할 수 없고 이력이 중복 저장되지 않음.
+- CLOSE-10: 종료 후 프로젝트·WBS·Activity 수정·상태 변경 차단 및 종료 이력 조회 가능.
+
+
+**메시지**: PRJ03-M01 프로젝트 정보가 저장되었습니다. / PRJ03-M02 상태가 변경되었습니다. / PRJ03-M03 프로젝트 상태가 변경되었습니다. 새로 조회해주세요. / PRJ03-M04 TECO 대상의 미완료 Activity가 n건, CRTD로 잠기는 WBS가 m건(소속 Activity k건) 있습니다. TECO 대상의 진행 중 작업은 완료만 가능하며 미착수·보류 작업은 착수·재개할 수 없습니다. CRTD로 잠기는 WBS에서는 작업 상태를 변경할 수 없습니다. 계속하시겠습니까? (경고, 목록·건수는 BR-06 기준) / PRJ03-M05 진행 중인 Activity가 n건 있습니다. 완료 처리 후 종료해주세요. (오류) / PRJ03-M06 REL 상태의 WBS가 n건 남아 있습니다. 상태 정합성을 확인해주세요. (오류) / PRJ03-M07 미수행 범위의 마감 사유를 입력하고 마감에 동의해주세요. (오류)
 
 ### 3.4 WBS-01 WBS Tree 관리
 
@@ -246,8 +266,8 @@
 |---|---|---|
 | 프로젝트 | 컨텍스트 | 선택 프로젝트 고정 |
 | WBS ID·이름 | 표시·입력 | 이름 필수, 고유 ID 생성 |
-| 부모 WBS | 선택·표시 | 등록 시 같은 프로젝트 노드에서 선택, 등록 후 변경 불가 (BR-12) |
-| WBS Level | 읽기 전용 | 부모 Level+1 자동 계산 (BR-12) |
+| 부모 WBS | 선택·표시 | 최상위 등록은 부모 없음, 하위 등록은 같은 프로젝트 노드 선택. 등록 후 변경 불가 (BR-12) |
+| WBS Level | 읽기 전용 | 최상위는 1, 하위는 부모 Level+1 자동 계산 (BR-12) |
 | WBS Status Code | 읽기 전용 | 코드와 명칭 표시, 생성 시 CRTD (BR-02) |
 
 **버튼 및 팝업**
@@ -255,13 +275,14 @@
 | 버튼 | 활성 조건 | 동작 | 팝업 | 메시지 |
 |---|---|---|---|---|
 | 조회 | 항상 | 프로젝트 WBS 트리 조회 | - | - |
+| 최상위 등록 | 프로젝트 CRTD·REL, 노드 선택 불필요 | 빈 트리에서도 가능. 부모 없음·Level=1·상태 CRTD로 생성 | 입력 팝업 | WBS-M01 / CM-01, WBS-M05, CM-05 |
 | 하위 등록 | 선택 노드가 BR-09 범위 | 선택 WBS 아래 새 노드 입력 | 입력 팝업 | WBS-M01 / CM-01, WBS-M05, WBS-M06, WBS-M07 |
 | 수정·저장 | 선택 노드가 BR-09 범위 | 이름 등 허용 항목 저장 | - | WBS-M01 / CM-01, WBS-M05 |
 | WBS Release | 선택 WBS CRTD | 선택 WBS와 하위 CRTD WBS → REL. 상위가 CRTD여도 가능 (BR-03, BR-04) | 함께 바뀔 하위 WBS가 있으면 확인 팝업(CM-07) | WBS-M02 / WBS-M03, CM-04, CM-05 |
-| WBS 기술 완료 | 선택 WBS REL | 선택 WBS와 하위 REL WBS → TECO (BR-03, BR-05) | 함께 바뀔 하위 WBS가 있으면 확인 팝업(CM-07) → 미완료 Activity가 있으면 경고 팝업(계속/취소) (BR-06) | WBS-M02 / WBS-M04(경고), CM-04, CM-05 |
+| WBS 기술 완료 | 선택 WBS REL | 선택 WBS와 하위 REL WBS → TECO (BR-03, BR-05) | 함께 바뀔 하위 WBS가 있으면 확인 팝업(CM-07) → 미완료 Activity 또는 새로 잠기는 CRTD WBS가 있으면 경고 팝업(계속/취소) (BR-06) | WBS-M02 / WBS-M04(경고), CM-04, CM-05 |
 | Activity 관리 | 노드 선택 | 선택 WBS의 ACT-01 이동 | - | - |
 
-**메시지**: WBS-M01 WBS가 저장되었습니다. / WBS-M02 WBS 상태가 변경되었습니다. / WBS-M03 완료 또는 종료된 범위의 WBS는 Release할 수 없습니다. / WBS-M04 완료되지 않은 Activity가 n건 있습니다. 기술 완료하면 진행 중인 작업의 완료만 가능하고 착수·재개는 할 수 없습니다. 계속하시겠습니까? (경고, 건수는 BR-06 기준) / WBS-M05 완료 또는 종료된 범위는 변경할 수 없습니다. / WBS-M06 같은 프로젝트의 상위 WBS를 선택해주세요. / WBS-M07 자기 자신이나 하위 WBS를 부모로 선택할 수 없습니다.
+**메시지**: WBS-M01 WBS가 저장되었습니다. / WBS-M02 WBS 상태가 변경되었습니다. / WBS-M03 완료 또는 종료된 범위의 WBS는 Release할 수 없습니다. / WBS-M04 TECO 대상의 미완료 Activity가 n건, CRTD로 잠기는 WBS가 m건(소속 Activity k건) 있습니다. TECO 대상의 진행 중 작업은 완료만 가능하며 미착수·보류 작업은 착수·재개할 수 없습니다. CRTD로 잠기는 WBS에서는 작업 상태를 변경할 수 없습니다. 계속하시겠습니까? (경고, 목록·건수는 BR-06 기준) / WBS-M05 완료 또는 종료된 범위는 변경할 수 없습니다. / WBS-M06 같은 프로젝트의 상위 WBS를 선택해주세요. / WBS-M07 자기 자신이나 하위 WBS를 부모로 선택할 수 없습니다.
 
 ### 3.5 ACT-01 Activity 관리
 
