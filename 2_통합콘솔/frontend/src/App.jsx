@@ -17,6 +17,7 @@ import {
   openTaskFolder,
   getAgentSettings,
   saveAgentSettings,
+  resolveTaskPermission,
 } from "./api";
 import { parseFileDiff } from "./diffParse";
 import "./App.css";
@@ -96,6 +97,47 @@ function DiffLine({ type, text }) {
     <div className={`diff-line diff-line--${type}`}>
       <span className="diff-line__prefix">{prefix}</span>
       <span className="diff-line__text">{text}</span>
+    </div>
+  );
+}
+
+function PermissionCard({ request, onAllow, onDeny, pending }) {
+  const [showDenyForm, setShowDenyForm] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
+  return (
+    <div className="permission-card">
+      <div className="permission-card__head">
+        <span className="permission-card__badge">승인 대기</span>
+        <span className="permission-card__tool">{request.toolName}</span>
+      </div>
+      <pre className="permission-card__input">{JSON.stringify(request.input, null, 2)}</pre>
+      {showDenyForm ? (
+        <div className="permission-card__deny-form">
+          <input
+            className="permission-card__deny-input"
+            type="text"
+            value={denyReason}
+            onChange={(e) => setDenyReason(e.target.value)}
+            placeholder="거부 사유 (선택)"
+            autoFocus
+          />
+          <button className="btn btn--outline" onClick={() => setShowDenyForm(false)} disabled={pending}>
+            취소
+          </button>
+          <button className="btn btn--primary" onClick={() => onDeny(denyReason.trim())} disabled={pending}>
+            거부 확정
+          </button>
+        </div>
+      ) : (
+        <div className="permission-card__actions">
+          <button className="btn btn--outline" onClick={() => setShowDenyForm(true)} disabled={pending}>
+            거부
+          </button>
+          <button className="btn btn--primary" onClick={onAllow} disabled={pending}>
+            {pending ? "처리 중..." : "허용"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -213,9 +255,13 @@ function App() {
   const [settingsPending, setSettingsPending] = useState(false);
 
   const [instruction, setInstruction] = useState("");
+  const [abapMode, setAbapMode] = useState(false);
   const [taskId, setTaskId] = useState(null);
   const [taskStatus, setTaskStatus] = useState(null);
   const [logLines, setLogLines] = useState([]);
+  const [pendingPermission, setPendingPermission] = useState(null);
+  const [permissionDecisionPending, setPermissionDecisionPending] = useState(false);
+  const [taskAbapMode, setTaskAbapMode] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [diff, setDiff] = useState(null);
   const [selectedFilePath, setSelectedFilePath] = useState(null);
@@ -295,6 +341,8 @@ function App() {
       setArtifactsCleaned(false);
       setTaskAgentConfig(null);
       setTaskRuns([]);
+      setPendingPermission(null);
+      setTaskAbapMode(false);
       return;
     }
 
@@ -313,6 +361,8 @@ function App() {
       setTaskRuns(task.runs ?? []);
       setArtifactsCleaned(Boolean(task.artifactsCleaned));
       setLogLines(task.events.filter((e) => e.type === "log").map((e) => ({ role: e.role, text: e.text })));
+      setPendingPermission(task.pendingPermission ?? null);
+      setTaskAbapMode(Boolean(task.abapMode));
       if (task.rejectReason) setRejectedReasonRecord(task.rejectReason);
 
       if (DONE_STATUSES.includes(task.status)) {
@@ -374,6 +424,11 @@ function App() {
         });
       } else if (event.type === "artifacts_cleaned") {
         setArtifactsCleaned(true);
+      } else if (event.type === "permission_request") {
+        setPendingPermission(event.request);
+        setLogLines((prev) => [...prev, { role: "도구", text: `[승인 대기] ${event.request.toolName}` }]);
+      } else if (event.type === "permission_resolved") {
+        setPendingPermission((current) => (current?.id === event.requestId ? null : current));
       }
     });
 
@@ -438,6 +493,8 @@ function App() {
     setArtifactsCleaned(false);
     setTaskAgentConfig(null);
     setTaskRuns([]);
+    setPendingPermission(null);
+    setTaskAbapMode(false);
   }
 
   async function handleRemoveProject(project) {
@@ -487,7 +544,7 @@ function App() {
     if (!instruction.trim() || isRunning || needsReview || !activeProjectId) return;
     setErrorMessage(null);
     try {
-      const { taskId: newTaskId } = await createTask(activeProjectId, instruction.trim());
+      const { taskId: newTaskId } = await createTask(activeProjectId, instruction.trim(), abapMode);
       setLogLines([]);
       setDiff(null);
       setSelectedFilePath(null);
@@ -499,6 +556,8 @@ function App() {
       setReviewExtraInstruction("");
       setShowRevisionForm(false);
       setRevisionInstruction("");
+      setPendingPermission(null);
+      setTaskAbapMode(abapMode);
       setTaskStatus("starting");
       setTaskAgentConfig(agentSettings);
       setTaskRuns([]);
@@ -617,6 +676,20 @@ function App() {
       setErrorMessage(err.message);
     } finally {
       setCleanupPending(false);
+    }
+  }
+
+  async function handleResolvePermission(decision, reason) {
+    if (!taskId || !pendingPermission) return;
+    setPermissionDecisionPending(true);
+    setErrorMessage(null);
+    try {
+      await resolveTaskPermission(taskId, pendingPermission.id, decision, reason);
+      setPendingPermission(null);
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setPermissionDecisionPending(false);
     }
   }
 
@@ -957,6 +1030,15 @@ function App() {
           disabled={isRunning || needsReview || !activeProjectId}
           aria-label="Claude 작업 지시"
         />
+        <label className="task-input__abap-mode">
+          <input
+            type="checkbox"
+            checked={abapMode}
+            onChange={(e) => setAbapMode(e.target.checked)}
+            disabled={isRunning || needsReview || !activeProjectId}
+          />
+          <span>ABAP 모드 (abap-trial MCP 연결, 도구 호출마다 승인 필요)</span>
+        </label>
         <button
           className="task-input__submit"
           type="submit"
@@ -1004,6 +1086,15 @@ function App() {
           <StatusBadge key={step.id} step={step} />
         ))}
       </section>
+
+      {pendingPermission && (
+        <PermissionCard
+          request={pendingPermission}
+          pending={permissionDecisionPending}
+          onAllow={() => handleResolvePermission("allow")}
+          onDeny={(reason) => handleResolvePermission("deny", reason)}
+        />
+      )}
 
       <section className="log-panel">
         <div className="log-panel__head">
@@ -1070,6 +1161,11 @@ function App() {
 
         <div className="workspace__diff">
           <div className="workspace__panel-head">{diffFileLabel}</div>
+          {showDiff && taskAbapMode && diff.changedFiles.length === 0 && (
+            <p className="diff-abap-note">
+              ABAP 변경 사항은 트라이얼 서버에 직접 반영되며 로컬 diff에는 나타나지 않습니다. 위 작업 로그를 확인하세요.
+            </p>
+          )}
           <div className="diff-body">
             {diffLines.map((line, i) => (
               <DiffLine key={i} type={line.type} text={line.text} />
