@@ -18,16 +18,15 @@ import {
 } from "./git.mjs";
 import { collectDiff, saveSnapshot } from "./diff.mjs";
 import { requestReview } from "./codexReview.mjs";
-import { loadAbapMcpServers } from "./abapMcp.mjs";
+import { pullAbapObjects, applyAbapChanges } from "./abapSync.mjs";
+
+const ABAP_SYNC_PACKAGE = process.env.ABAP_SYNC_PACKAGE || "ZPKG_YJ_1014";
 
 const tasks = new Map();
 let activeTaskId = null;
 let pendingReviewTaskId = null;
 let pendingCleanupTaskId = null;
 let tasksFile = null;
-// requestId -> canUseTool promise의 resolve 함수. 메모리에만 존재하며 디스크에 저장하지 않는다
-// (queryHandle/abortController와 같은 이유 — 서버 재시작 시 복구 불가능).
-const pendingPermissionResolvers = new Map();
 
 function persistedTask(task) {
   const { queryHandle, abortController, timeoutHandle, ...data } = task;
@@ -66,15 +65,6 @@ export function initTaskManager(runtimeRoot) {
         error: "서버 재시작으로 Codex 리뷰가 중단되었습니다.",
         completedAt: new Date().toISOString(),
       };
-    }
-    if (task.pendingPermission) {
-      // resolver는 메모리에만 있었으므로 서버 재시작으로 복구 불가능 — 작업을 실패 처리.
-      task.pendingPermission = null;
-      if (!["failed", "aborted", "approved", "rejected", "completed"].includes(task.status)) {
-        task.status = "failed";
-        task.error = "서버가 승인 대기 중 재시작되었습니다. 남은 worktree를 확인한 뒤 정리해주세요.";
-        task.finishedAt = new Date().toISOString();
-      }
     }
     tasks.set(task.id, task);
   }
@@ -227,55 +217,6 @@ function emit(task, event, broadcast) {
   broadcast(stamped);
 }
 
-// ABAP 모드 전용: permissionMode("acceptEdits")가 자동 승인하지 않는 모든 도구 호출
-// (MCP 호출 전부 포함)을 가로채 콘솔 화면의 "승인 대기" 카드로 보내고, 사람이
-// 허용/거부를 누를 때까지 resolve하지 않는다. bypassPermissions는 사용하지 않는다.
-function createCanUseTool(task, broadcast) {
-  return (toolName, input, { signal }) =>
-    new Promise((resolve) => {
-      const requestId = crypto.randomUUID();
-      task.pendingPermission = {
-        id: requestId,
-        toolName,
-        input,
-        requestedAt: new Date().toISOString(),
-      };
-      pendingPermissionResolvers.set(requestId, resolve);
-      persistTasks();
-      emit(task, { type: "permission_request", request: task.pendingPermission }, broadcast);
-
-      signal.addEventListener("abort", () => {
-        if (pendingPermissionResolvers.delete(requestId)) {
-          task.pendingPermission = null;
-          persistTasks();
-          resolve({ behavior: "deny", message: "작업이 중단되어 거부 처리되었습니다." });
-        }
-      });
-    });
-}
-
-export function resolvePermission(id, requestId, decision, reason, broadcast) {
-  const task = tasks.get(id);
-  if (!task || !task.pendingPermission || task.pendingPermission.id !== requestId) {
-    throw new Error("대기 중인 권한 요청을 찾을 수 없습니다.");
-  }
-  const resolve = pendingPermissionResolvers.get(requestId);
-  if (!resolve) {
-    throw new Error("이미 처리된 요청입니다.");
-  }
-  pendingPermissionResolvers.delete(requestId);
-  const resolvedRequest = task.pendingPermission;
-  task.pendingPermission = null;
-
-  if (decision === "allow") {
-    resolve({ behavior: "allow", updatedInput: resolvedRequest.input });
-  } else {
-    resolve({ behavior: "deny", message: reason || "사용자가 거부했습니다." });
-  }
-  emit(task, { type: "permission_resolved", requestId, decision }, broadcast);
-  return task;
-}
-
 export async function startTask(
   { instruction, projectId, projectPath, baseBranch, worktreesRoot, reviewsRoot, agentConfig, abapMode },
   broadcast
@@ -296,6 +237,7 @@ export async function startTask(
     worktreeDir,
     baseBranch: null,
     baseSha: null,
+    mergeBaseSha: null,
     targetSha: null,
     status: "starting",
     events: [],
@@ -317,7 +259,6 @@ export async function startTask(
     agentConfig: structuredClone(agentConfig),
     runs: [],
     abapMode: Boolean(abapMode),
-    pendingPermission: null,
   };
   tasks.set(id, task);
   activeTaskId = id;
@@ -342,6 +283,26 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
       worktreeDir: task.worktreeDir,
     });
     task.baseBranch = resolvedBase;
+    // 원본 프로젝트가 실제로 이 커밋에 있었는지(ff-merge 검증용) — ABAP pull로
+    // baseSha가 뒤로 밀리더라도 이 값은 원본 프로젝트 HEAD를 그대로 가리켜야 한다.
+    task.mergeBaseSha = await getRevision(task.worktreeDir, "HEAD");
+
+    if (task.abapMode) {
+      const { pulled, skipped } = await pullAbapObjects({
+        packageName: ABAP_SYNC_PACKAGE,
+        worktreeDir: task.worktreeDir,
+      });
+      emit(
+        task,
+        {
+          type: "log",
+          role: "도구",
+          text: `ABAP 가져오기 완료 · ${pulled.length}개 오브젝트${skipped.length ? ` (미지원 타입 ${skipped.length}개 건너뜀)` : ""}`,
+        },
+        broadcast
+      );
+      await commitAll({ cwd: task.worktreeDir, message: "ABAP pull baseline" });
+    }
     task.baseSha = await getRevision(task.worktreeDir, "HEAD");
 
     if (task.status === "aborted") return;
@@ -362,19 +323,13 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
     publishRun(task, agentRun, broadcast);
 
     const q = query({
-      prompt: task.instruction,
+      prompt: task.abapMode ? `${abapPreamble()}\n\n${task.instruction}` : task.instruction,
       options: {
         cwd: task.worktreeDir,
         permissionMode: "acceptEdits",
         abortController: task.abortController,
         ...(claudeConfig.model !== "default" ? { model: claudeConfig.model } : {}),
         ...(claudeConfig.effort ? { effort: claudeConfig.effort } : {}),
-        ...(task.abapMode
-          ? {
-              canUseTool: createCanUseTool(task, broadcast),
-              ...(loadAbapMcpServers() ? { mcpServers: loadAbapMcpServers() } : {}),
-            }
-          : {}),
       },
     });
     task.queryHandle = q;
@@ -407,11 +362,17 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
       targetSha: task.targetSha,
     });
     task.diff = diffResult;
-    task.status = "completed";
     task.finishedAt = new Date().toISOString();
-    pendingReviewTaskId = task.id;
     if (activeTaskId === task.id) activeTaskId = null;
-    emit(task, { type: "status", status: "completed" }, broadcast);
+
+    if (diffResult.changedFiles.length === 0) {
+      emit(task, { type: "log", role: "도구", text: "변경 사항이 없어 자동 승인 처리합니다." }, broadcast);
+      await finalizeApproved(task, broadcast, { autoApproved: true });
+    } else {
+      task.status = "completed";
+      pendingReviewTaskId = task.id;
+      emit(task, { type: "status", status: "completed" }, broadcast);
+    }
   } catch (err) {
     if (task.status !== "aborted") {
       task.status = "failed";
@@ -550,6 +511,36 @@ async function cleanupArtifacts(task) {
   return task.artifactsCleaned;
 }
 
+// 승인 시(수동이든, 변경사항 없어서 자동이든) 공통으로 하는 일: ff-merge + 임시 작업 정리 + 상태 전환.
+async function finalizeApproved(task, broadcast, extraEvent = {}) {
+  await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
+  const mergedSha = await fastForwardMerge({
+    projectPath: task.projectPath,
+    targetSha: task.targetSha,
+    expectedBaseBranch: task.baseBranch,
+    expectedBaseSha: task.mergeBaseSha,
+  });
+
+  await cleanupArtifacts(task);
+
+  task.status = "approved";
+  task.approvedAt = new Date().toISOString();
+  task.mergedSha = mergedSha;
+  pendingReviewTaskId = null;
+  emit(
+    task,
+    {
+      type: "status",
+      status: "approved",
+      artifactsCleaned: task.artifactsCleaned,
+      cleanupError: task.cleanupError,
+      ...extraEvent,
+    },
+    broadcast
+  );
+  return mergedSha;
+}
+
 export async function approveTask(id, expectedSnapshot, broadcast) {
   const task = tasks.get(id);
   if (!task || task.id !== pendingReviewTaskId) {
@@ -564,24 +555,27 @@ export async function approveTask(id, expectedSnapshot, broadcast) {
 
   assertExpectedSnapshot(task, expectedSnapshot);
   await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
-  const mergedSha = await fastForwardMerge({
-    projectPath: task.projectPath,
-    targetSha: task.targetSha,
-    expectedBaseBranch: task.baseBranch,
-    expectedBaseSha: task.baseSha,
-  });
 
-  await cleanupArtifacts(task);
+  let applyResult = null;
+  if (task.abapMode) {
+    applyResult = await applyAbapChanges({
+      worktreeDir: task.worktreeDir,
+      changedFiles: task.diff.changedFiles,
+      packageName: ABAP_SYNC_PACKAGE,
+    });
+    task.applyResult = applyResult;
+    if (applyResult.failed.length > 0) {
+      const summary = applyResult.failed.map((f) => `${f.name ?? f.path}: ${f.reason}`).join("; ");
+      emit(
+        task,
+        { type: "status", status: "completed", applyFailed: true, applyResult },
+        broadcast
+      );
+      throw new Error(`ABAP 반영 실패 (${applyResult.failed.length}건) — 머지하지 않았습니다: ${summary}`);
+    }
+  }
 
-  task.status = "approved";
-  task.approvedAt = new Date().toISOString();
-  task.mergedSha = mergedSha;
-  pendingReviewTaskId = null;
-  emit(
-    task,
-    { type: "status", status: "approved", artifactsCleaned: task.artifactsCleaned, cleanupError: task.cleanupError },
-    broadcast
-  );
+  await finalizeApproved(task, broadcast, { applyResult });
   return task;
 }
 
@@ -636,6 +630,23 @@ export function openTaskFolder(id) {
     throw new Error("작업 폴더가 없습니다 (이미 정리되었거나 아직 생성되지 않았습니다).");
   }
   spawn("explorer", [task.worktreeDir], { detached: true, stdio: "ignore" }).unref();
+}
+
+function abapPreamble() {
+  return [
+    `이 작업은 ABAP 모드다. \`${ABAP_SYNC_PACKAGE}\` 패키지의 오브젝트 소스를 ` +
+      "\`abap/<타입>/<이름>.abap\` 형태의 일반 파일로 미리 받아뒀다.",
+    "이 폴더 안의 파일만 수정하거나, 같은 규칙으로 새 파일을 추가해 새 오브젝트를 만들어라" +
+      " (예: 새 클래스는 abap/clas/<소문자이름>.clas.abap, 새 인터페이스는 abap/intf/<소문자이름>.intf.abap).",
+    "파일 이름은 정확히 abap/<타입디렉토리>/<오브젝트이름>.<확장자> 형식만 써라" +
+      " (클래스는 .clas.abap, 인터페이스는 .intf.abap, CDS는 .ddls.abap, 테이블은 .tabl.abap)." +
+      " abapGit 스타일의 *.clas.testclasses.abap 같은 별도 인클루드 파일, locals/macros 파일 등" +
+      " 이 패턴에서 벗어나는 보조 파일은 절대 만들지 마라 — 적용 단계에서 실패한다.",
+    "유닛 테스트가 필요하면 별도 파일을 만들지 말고, 클래스 소스 파일 안에 로컬 테스트 클래스" +
+      "(CLASS ltcl_... DEFINITION FOR TESTING ... )를 같은 파일에 포함시켜라.",
+    "이 폴더 밖의 파일은 건드리지 말고, abap/ 안의 기존 파일을 rename하지 마라" +
+      " (rename은 지원하지 않아 적용 단계에서 실패한다).",
+  ].join(" ");
 }
 
 function buildRevisionPrompt(task, extraInstruction) {
@@ -711,20 +722,15 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
     });
     publishRun(task, agentRun, broadcast);
 
+    const revisionPrompt = buildRevisionPrompt(task, extraInstruction);
     const q = query({
-      prompt: buildRevisionPrompt(task, extraInstruction),
+      prompt: task.abapMode ? `${abapPreamble()}\n\n${revisionPrompt}` : revisionPrompt,
       options: {
         cwd: task.worktreeDir,
         permissionMode: "acceptEdits",
         abortController: task.abortController,
         ...(claudeConfig.model !== "default" ? { model: claudeConfig.model } : {}),
         ...(claudeConfig.effort ? { effort: claudeConfig.effort } : {}),
-        ...(task.abapMode
-          ? {
-              canUseTool: createCanUseTool(task, broadcast),
-              ...(loadAbapMcpServers() ? { mcpServers: loadAbapMcpServers() } : {}),
-            }
-          : {}),
       },
     });
     task.queryHandle = q;
@@ -764,11 +770,17 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
     task.diff = diffResult;
     task.review = null;
     task.revisionCount = revisionNumber;
-    task.status = "completed";
     task.finishedAt = new Date().toISOString();
     task.error = null;
     if (activeTaskId === task.id) activeTaskId = null;
-    emit(task, { type: "status", status: "completed", revised: true }, broadcast);
+
+    if (diffResult.changedFiles.length === 0) {
+      emit(task, { type: "log", role: "도구", text: "변경 사항이 없어 자동 승인 처리합니다." }, broadcast);
+      await finalizeApproved(task, broadcast, { autoApproved: true, revised: true });
+    } else {
+      task.status = "completed";
+      emit(task, { type: "status", status: "completed", revised: true }, broadcast);
+    }
   } catch (err) {
     try {
       await restoreFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: previous.targetSha });

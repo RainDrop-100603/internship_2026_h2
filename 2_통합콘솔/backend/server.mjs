@@ -30,7 +30,6 @@ import {
   projectRemovalBlockReason,
   serializeTask,
   initTaskManager,
-  resolvePermission,
 } from "./taskManager.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -195,6 +194,7 @@ app.post("/api/tasks/:id/approve", requireToken, requireDestructiveConfirmation,
       mergedSha: task.mergedSha,
       artifactsCleaned: task.artifactsCleaned,
       cleanupError: task.cleanupError,
+      applyResult: task.applyResult ?? null,
     });
   } catch (err) {
     res.status(409).json({ error: String(err?.message ?? err) });
@@ -252,19 +252,6 @@ app.post("/api/tasks/:id/revise", requireToken, async (req, res) => {
   try {
     await requestRevision({ id: req.params.id, extraInstruction, reviewsRoot }, broadcast);
     res.json({ requested: true });
-  } catch (err) {
-    res.status(409).json({ error: String(err?.message ?? err) });
-  }
-});
-
-app.post("/api/tasks/:id/permission", requireToken, (req, res) => {
-  const { requestId, decision, reason } = req.body ?? {};
-  if (!requestId || !["allow", "deny"].includes(decision)) {
-    return res.status(400).json({ error: "requestId and decision('allow'|'deny') required" });
-  }
-  try {
-    resolvePermission(req.params.id, requestId, decision, reason, broadcast);
-    res.json({ ok: true });
   } catch (err) {
     res.status(409).json({ error: String(err?.message ?? err) });
   }
