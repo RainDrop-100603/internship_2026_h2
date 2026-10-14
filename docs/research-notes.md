@@ -17,7 +17,7 @@
 | 워크스페이스 위치 | 로컬 `C:\workspace` (git 저장소 밖) | 한글 경로 회피 + ABAP 소스는 서버 저장이라 git 추적 실익 없음 |
 | 90일 만료 대응 | 같은 계정으로 트라이얼 재생성 + abapGit 백업 | 연장 불가, 데이터 소멸되므로 코드 백업 필수 ([상세](#조사-3-btp-trial-90일-정책)) |
 | MCP 서버 | fr0ster/mcp-abap-adt (vibing-steampunk 보류) | 서비스 키 OAuth 자동 갱신 지원. vsp는 BTP 인증이 쿠키 수동 추출 방식이라 불안정 ([상세](#mcp-서버-비교--fr0stermcp-abap-adt-채택-vs-oiseevibing-steampunk-2026-07-조사)) |
-| 작업 패키지 | `ZPKS_INTERN_260719` (superpackage: ZLOCAL) | 공유 시스템이라 본인 패키지로 범위 한정. CLAUDE.md에 규칙 명시 |
+| 작업 패키지 | `ZPKG_YJ_1014` (superpackage: ZLOCAL) | 공유 시스템이라 본인 패키지로 범위 한정. CLAUDE.md에 규칙 명시. 2026-10-14 `ZPKS_INTERN_260719`에서 교체 — 기존 패키지 소유 계정의 트라이얼 만료로 패키지 소멸 ([상세](setup-guide.md#9-claude-code--abap-mcp-연동-mcp-abap-adt)) |
 
 ## 조사 1: 다운로드형 서버(온프레미스 Developer Edition) 현황
 

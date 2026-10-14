@@ -237,17 +237,27 @@
 
 </details>
 
+<details>
+<summary>트러블슈팅: JWT 인증 끊김 + 기준 패키지 소멸 — 서비스 키 소유 계정의 트라이얼 만료 (2026-10-14)</summary>
+
+- **증상**: MCP 인증(JWT)이 갱신되지 않고 끊김. 재연결 후 기준 패키지 `ZPKS_INTERN_260719` 조회 시 `Package ... not found`
+- **원인 (추정, 정황 일치)**: 패키지와 서비스 키를 만든 팀원 계정이 트라이얼 90일 만료(패키지 생성 2026-07-19 → 87일째, 만료는 계정 생성일 기준)로 삭제됨. 트라이얼 삭제 시 ABAP 인스턴스·서비스 키·해당 사용자 오브젝트가 함께 소멸 → refresh token 갱신 불가
+- **해결**: 본인 계정의 서비스 키로 세팅 절차 4번(`sap-abap-auth`) 재실행 → 새 패키지 `ZPKG_YJ_1014` 생성 → CLAUDE.md·AGENTS.md 기준 패키지 교체
+- **교훈**: 서비스 키·패키지는 **계정 수명에 묶임** — 다른 사람 계정에 의존하지 말 것. BTP Cockpit에서 본인 트라이얼 잔여 일수를 확인하고, 만료 전 [abapGit 백업](#8-abapgit-세팅-90일-만료-대비-백업--코드-공유) 필수
+
+</details>
+
 ### 검증 결과 (2026-07-19)
 
 - SearchObject로 시스템 검색 정상 (공유 시스템이라 타 사용자 오브젝트 대량 검색됨 — CLAUDE.md에 기준 패키지 규칙 명시로 대응)
-- GetPackageContents로 본인 패키지(`ZPKS_INTERN_260719`) 조회 정상 — Hello World 클래스 확인
+- GetPackageContents로 본인 패키지(`ZPKS_INTERN_260719`, 당시 기준 — 현재는 `ZPKG_YJ_1014`) 조회 정상 — Hello World 클래스 확인
 - GetClass로 `ZCL_HELLO_WORLD_PKS` 소스 코드 조회 정상 (JWT 인증 동작 확인)
 - `readonly,high` 기준 노출 툴 약 215개: 테이블 데이터 조회(GetTableContents), 클래스/CDS/RAP 아티팩트 CRUD, SQL 쿼리(GetSqlQuery), 클래스 실행(RuntimeRunClass), 유닛 테스트(RunUnitTest), Where-Used, 버전 이력/diff, 덤프·프로파일러(Runtime*) 등
 
 ### 참고
 
 - **토큰 갱신**: JWT 만료 시 refresh token으로 자동 갱신. refresh token까지 만료되면 세팅 절차 4번 명령 재실행
-- **기준 패키지 규칙**: 조회·생성은 `ZPKS_INTERN_260719` 패키지 기준 (CLAUDE.md "ABAP 작업 규칙" 참고)
+- **기준 패키지 규칙**: 조회·생성은 `ZPKG_YJ_1014` 패키지 기준 (CLAUDE.md "ABAP 작업 규칙" 참고)
 
 ## 10. 이후 학습
 
