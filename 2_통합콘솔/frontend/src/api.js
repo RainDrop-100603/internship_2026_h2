@@ -18,10 +18,10 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
-export function createTask(projectId, instruction) {
+export function createTask(projectId, instruction, abapMode) {
   return apiFetch("/api/tasks", {
     method: "POST",
-    body: JSON.stringify({ projectId, instruction }),
+    body: JSON.stringify({ projectId, instruction, abapMode: Boolean(abapMode) }),
   });
 }
 
@@ -112,6 +112,13 @@ export function requestRevision(taskId, instruction) {
 
 export function getCodexReview(taskId) {
   return apiFetch(`/api/tasks/${taskId}/review`);
+}
+
+export function resolveTaskPermission(taskId, requestId, decision, reason) {
+  return apiFetch(`/api/tasks/${taskId}/permission`, {
+    method: "POST",
+    body: JSON.stringify({ requestId, decision, reason }),
+  });
 }
 
 export function connectTaskSocket(onEvent) {

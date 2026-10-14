@@ -18,12 +18,16 @@ import {
 } from "./git.mjs";
 import { collectDiff, saveSnapshot } from "./diff.mjs";
 import { requestReview } from "./codexReview.mjs";
+import { loadAbapMcpServers } from "./abapMcp.mjs";
 
 const tasks = new Map();
 let activeTaskId = null;
 let pendingReviewTaskId = null;
 let pendingCleanupTaskId = null;
 let tasksFile = null;
+// requestId -> canUseTool promise의 resolve 함수. 메모리에만 존재하며 디스크에 저장하지 않는다
+// (queryHandle/abortController와 같은 이유 — 서버 재시작 시 복구 불가능).
+const pendingPermissionResolvers = new Map();
 
 function persistedTask(task) {
   const { queryHandle, abortController, timeoutHandle, ...data } = task;
@@ -62,6 +66,15 @@ export function initTaskManager(runtimeRoot) {
         error: "서버 재시작으로 Codex 리뷰가 중단되었습니다.",
         completedAt: new Date().toISOString(),
       };
+    }
+    if (task.pendingPermission) {
+      // resolver는 메모리에만 있었으므로 서버 재시작으로 복구 불가능 — 작업을 실패 처리.
+      task.pendingPermission = null;
+      if (!["failed", "aborted", "approved", "rejected", "completed"].includes(task.status)) {
+        task.status = "failed";
+        task.error = "서버가 승인 대기 중 재시작되었습니다. 남은 worktree를 확인한 뒤 정리해주세요.";
+        task.finishedAt = new Date().toISOString();
+      }
     }
     tasks.set(task.id, task);
   }
@@ -214,8 +227,57 @@ function emit(task, event, broadcast) {
   broadcast(stamped);
 }
 
+// ABAP 모드 전용: permissionMode("acceptEdits")가 자동 승인하지 않는 모든 도구 호출
+// (MCP 호출 전부 포함)을 가로채 콘솔 화면의 "승인 대기" 카드로 보내고, 사람이
+// 허용/거부를 누를 때까지 resolve하지 않는다. bypassPermissions는 사용하지 않는다.
+function createCanUseTool(task, broadcast) {
+  return (toolName, input, { signal }) =>
+    new Promise((resolve) => {
+      const requestId = crypto.randomUUID();
+      task.pendingPermission = {
+        id: requestId,
+        toolName,
+        input,
+        requestedAt: new Date().toISOString(),
+      };
+      pendingPermissionResolvers.set(requestId, resolve);
+      persistTasks();
+      emit(task, { type: "permission_request", request: task.pendingPermission }, broadcast);
+
+      signal.addEventListener("abort", () => {
+        if (pendingPermissionResolvers.delete(requestId)) {
+          task.pendingPermission = null;
+          persistTasks();
+          resolve({ behavior: "deny", message: "작업이 중단되어 거부 처리되었습니다." });
+        }
+      });
+    });
+}
+
+export function resolvePermission(id, requestId, decision, reason, broadcast) {
+  const task = tasks.get(id);
+  if (!task || !task.pendingPermission || task.pendingPermission.id !== requestId) {
+    throw new Error("대기 중인 권한 요청을 찾을 수 없습니다.");
+  }
+  const resolve = pendingPermissionResolvers.get(requestId);
+  if (!resolve) {
+    throw new Error("이미 처리된 요청입니다.");
+  }
+  pendingPermissionResolvers.delete(requestId);
+  const resolvedRequest = task.pendingPermission;
+  task.pendingPermission = null;
+
+  if (decision === "allow") {
+    resolve({ behavior: "allow", updatedInput: resolvedRequest.input });
+  } else {
+    resolve({ behavior: "deny", message: reason || "사용자가 거부했습니다." });
+  }
+  emit(task, { type: "permission_resolved", requestId, decision }, broadcast);
+  return task;
+}
+
 export async function startTask(
-  { instruction, projectId, projectPath, baseBranch, worktreesRoot, reviewsRoot, agentConfig },
+  { instruction, projectId, projectPath, baseBranch, worktreesRoot, reviewsRoot, agentConfig, abapMode },
   broadcast
 ) {
   if (isBusy()) {
@@ -254,6 +316,8 @@ export async function startTask(
     reviewHistory: [],
     agentConfig: structuredClone(agentConfig),
     runs: [],
+    abapMode: Boolean(abapMode),
+    pendingPermission: null,
   };
   tasks.set(id, task);
   activeTaskId = id;
@@ -305,6 +369,12 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
         abortController: task.abortController,
         ...(claudeConfig.model !== "default" ? { model: claudeConfig.model } : {}),
         ...(claudeConfig.effort ? { effort: claudeConfig.effort } : {}),
+        ...(task.abapMode
+          ? {
+              canUseTool: createCanUseTool(task, broadcast),
+              ...(loadAbapMcpServers() ? { mcpServers: loadAbapMcpServers() } : {}),
+            }
+          : {}),
       },
     });
     task.queryHandle = q;
@@ -649,6 +719,12 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
         abortController: task.abortController,
         ...(claudeConfig.model !== "default" ? { model: claudeConfig.model } : {}),
         ...(claudeConfig.effort ? { effort: claudeConfig.effort } : {}),
+        ...(task.abapMode
+          ? {
+              canUseTool: createCanUseTool(task, broadcast),
+              ...(loadAbapMcpServers() ? { mcpServers: loadAbapMcpServers() } : {}),
+            }
+          : {}),
       },
     });
     task.queryHandle = q;
