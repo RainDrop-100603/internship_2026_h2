@@ -108,7 +108,7 @@
 
 ## 6. Eclipse에서 ABAP Cloud Project 연결
 
-- **인스턴스 URL 확인**: BTP Cockpit → 서브계정(trial) → `Services > Instances and Subscriptions` → 부스터가 만든 ABAP environment 인스턴스에서 URL 복사
+- **인스턴스 URL 확인**: BTP Cockpit → Account Explorer → Subaccounts(trial) → `Services > Instances and Subscriptions` → 부스터가 만든 ABAP environment 인스턴스에서 URL 복사
   - 형태: `https://<시스템ID>.abap.ap21.hana.ondemand.com` (ap21 = Singapore 리전). 일반 웹사이트가 아니라 본인 전용 ABAP 시스템의 접속 엔드포인트
 - Eclipse: `File > New > Other > ABAP Cloud Project` → **SAP BTP ABAP Environment** 선택
 - 연결 방식: **"Use a Service Instance URL"** 선택 후 URL 붙여넣기 (서비스 키 JSON 방식도 있으나 URL이 더 간단)
