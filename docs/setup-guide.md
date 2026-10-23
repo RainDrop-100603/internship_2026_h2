@@ -108,39 +108,38 @@
 
 ## 6. Eclipse에서 ABAP Cloud Project 연결
 
-- **인스턴스 URL 확인**: BTP Cockpit → Account Explorer → Subaccounts(trial) → `Services > Instances and Subscriptions` → 부스터가 만든 ABAP environment 인스턴스에서 URL 복사
-  - 형태: `https://<시스템ID>.abap.ap21.hana.ondemand.com` (ap21 = Singapore 리전). 일반 웹사이트가 아니라 본인 전용 ABAP 시스템의 접속 엔드포인트
-- Eclipse: `File > New > Other > ABAP Cloud Project` → **SAP BTP ABAP Environment** 선택
-- 연결 방식: **"Use a Service Instance URL"** 선택 후 URL 붙여넣기 (서비스 키 JSON 방식도 있으나 URL이 더 간단)
-- **"Open Logon Page in Browser"** → 브라우저에서 트라이얼 SAP 계정으로 로그인 → Eclipse로 돌아오면 자동 연결
-- 프로젝트 이름은 자유 (예: `Connect_Test_260719`)
-- **Working Sets는 체크 안 하고 Finish** — 프로젝트가 많아졌을 때의 그룹핑 기능일 뿐, 나중에 언제든 추가 가능
+1. **인스턴스 URL 확인**: BTP Cockpit → Account Explorer → Subaccounts(trial) → `Services > Instances and Subscriptions` → Instances → Service Keys → Form 형태 → url
+  - url 형식: `https://<시스템ID>.abap.ap21.hana.ondemand.com` (ap21 = Singapore 리전). 일반 웹사이트가 아니라 본인 전용 ABAP 시스템의 접속 엔드포인트
+  - (사내) Eclipse Proxy 설정
+2. Eclipse: `File > New > Other > ABAP Cloud Project` → **SAP BTP ABAP Environment** 선택
+  - 연결 방식: **"Use a Service Instance URL"** 선택 후 URL 붙여넣기 (서비스 키 JSON 방식도 있으나 URL이 더 간단)
+  - **"Open Logon Page in Browser"** → 브라우저에서 트라이얼 SAP 계정으로 로그인 → Eclipse로 돌아오면 자동 연결
+  - 프로젝트 이름은 자유 (예: `Connect_Test_260719`)
+  - **Working Sets는 체크 안 하고 Finish** — 프로젝트가 많아졌을 때의 그룹핑 기능일 뿐, 나중에 언제든 추가 가능
 
 ## 7. 연결 검증 — Hello World
 
-- `File > New > ABAP Class` → Package: 본인 패키지(아래 공유 시스템 주의 참고), Name: `ZCL_HELLO_<고유접미사>`
-- 코드:
-  ```abap
-  CLASS zcl_hello_xxx DEFINITION
-    PUBLIC FINAL CREATE PUBLIC.
-    PUBLIC SECTION.
-      INTERFACES if_oo_adt_classrun.
-  ENDCLASS.
+1. Project Explorer 에서 Package를 생성합니다.
+  - Project Explorer 우클릭 → New → Package → 이름: <원하는 패키지 이름>, superpackage: ZLOCAL
+  - Project Explorer가 안보일 경우: `Window > Show View > Project Explorer` (또는 `Window > Perspective > Reset Perspective`)
 
-  CLASS zcl_hello_xxx IMPLEMENTATION.
-    METHOD if_oo_adt_classrun~main.
-      out->write( 'Hello World from BTP Trial!' ).
-    ENDMETHOD.
-  ENDCLASS.
-  ```
-- **Ctrl+F3**(활성화 — 저장만으로는 반영 안 됨) → **F9**(콘솔 실행) → Console 뷰에 출력 확인되면 환경 구축 완료
-
-<details>
-<summary>트러블슈팅: Project Explorer가 안 보임</summary>
-
-- `Window > Show View > Project Explorer` (또는 `Window > Perspective > Reset Perspective`)
-
-</details>
+2. 해당 Package에 Test Class를 만들고 실행해 봅니다.
+  - `File > New > ABAP Class` → Package: <1에서 만든 패키지> , Name: <원하는 클래스 이름>
+  - 코드:
+    ```abap
+    CLASS zcl_hello_xxx DEFINITION
+      PUBLIC FINAL CREATE PUBLIC.
+      PUBLIC SECTION.
+        INTERFACES if_oo_adt_classrun.
+    ENDCLASS.
+  
+    CLASS zcl_hello_xxx IMPLEMENTATION.
+      METHOD if_oo_adt_classrun~main.
+        out->write( 'Hello World from BTP Trial!' ).
+      ENDMETHOD.
+    ENDCLASS.
+    ```
+  - **Ctrl+F3**(활성화 — 저장만으로는 반영 안 됨) → **F9**(콘솔 실행) → Console 뷰에 출력 확인되면 환경 구축 완료
 
 ### ⚠️ BTP Trial은 공유 시스템 — 네이밍/보안 주의
 
