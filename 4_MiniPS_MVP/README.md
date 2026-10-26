@@ -68,6 +68,27 @@
 | **5. Activity (PS-04)** | WBS의 하위 엔터티. PLAN 고정, 작업장·담당자 검증, 시작일 ≤ 종료일, BR-09 | TS-10, 11 |
 | **6. 시나리오 테스트** | 3.3 범위 전체 실행, 결과·제한사항 기록 | 범위 내 시나리오 통과 |
 
+### 0단계 결과 (2026-10-26 완료)
+
+`2_통합콘솔/backend/abapSync.mjs` 어댑터 재작성. 테스트용 RAP 스택(테이블 → CDS → BDEF → Behavior Pool + 핸들러 → DDLX → SRVD) 7개를 apply 한 번으로 생성·활성화 → pull로 되돌려 받아 원본과 동일함 확인 → 수정(update) → 삭제까지 트라이얼에서 검증하고 테스트 오브젝트는 모두 삭제했다.
+
+| 파일 | 오브젝트 |
+|---|---|
+| `abap/tabl/*.tabl.abap` | 테이블 |
+| `abap/ddls/*.ddls.abap` | CDS 뷰 |
+| `abap/bdef/*.bdef.abap` | Behavior Definition (생성 시 소스 첫머리에서 구현 타입·루트 엔터티를 읽음) |
+| `abap/intf/*.intf.abap` | 인터페이스 |
+| `abap/clas/*.clas.abap` | 클래스 (`FOR BEHAVIOR OF`가 있으면 Behavior Pool로 생성) |
+| `abap/clas/*.clas.locals_imp.abap` | 클래스 로컬 타입(CCIMP) — RAP 핸들러 코드 |
+| `abap/ddlx/*.ddlx.abap` | Metadata Extension |
+| `abap/srvd/*.srvd.abap` | Service Definition |
+
+실측으로 알게 된 것 (코드 주석에도 기록):
+- **기존 버그**: DDLS/TABL Get 응답 필드명 추정이 틀려 pull 시 빈 파일이 생겼다 → 실측값(`ddl_data`, `table_data`)으로 수정. 소스 필드를 못 찾으면 빈 파일 대신 오류를 낸다.
+- **로컬 인클루드는 활성 버전 기준으로 문법 검사 후 저장**된다 → CDS·BDEF가 비활성이면 저장 거부. 그래서 반영을 4단계(데이터 모델 → 클래스 → 로컬 인클루드 → UI·서비스)로 나눠 단계마다 저장·활성화한다.
+- **`ActivateObjects`는 BDEF에 대해 성공을 응답하고도 실제로는 활성화하지 않는다** → BDEF는 전용 `ActivateBehaviorDefinition`으로 활성화하고, 단계마다 서버 비활성 목록을 다시 조회해 응답이 거짓 성공인지 확인한다.
+- 같은 이름의 테이블을 삭제 직후 다시 만들면 TADIR 충돌로 실패한다 (서버 측 지연). 이름을 바꾸거나 시간을 두고 재시도.
+
 ## 5. 정해야 할 것 / 미리 알아둘 제약
 
 - **ID 자동 생성(BR-17)**: 내부 키는 UUID, 화면용 ID(예: `P000001`)는 저장 시 determination으로 채번하는 방식을 제안 (1단계에서 확정).

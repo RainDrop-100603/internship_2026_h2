@@ -638,10 +638,18 @@ function abapPreamble() {
       "\`abap/<타입>/<이름>.abap\` 형태의 일반 파일로 미리 받아뒀다.",
     "이 폴더 안의 파일만 수정하거나, 같은 규칙으로 새 파일을 추가해 새 오브젝트를 만들어라" +
       " (예: 새 클래스는 abap/clas/<소문자이름>.clas.abap, 새 인터페이스는 abap/intf/<소문자이름>.intf.abap).",
-    "파일 이름은 정확히 abap/<타입디렉토리>/<오브젝트이름>.<확장자> 형식만 써라" +
-      " (클래스는 .clas.abap, 인터페이스는 .intf.abap, CDS는 .ddls.abap, 테이블은 .tabl.abap)." +
-      " abapGit 스타일의 *.clas.testclasses.abap 같은 별도 인클루드 파일, locals/macros 파일 등" +
-      " 이 패턴에서 벗어나는 보조 파일은 절대 만들지 마라 — 적용 단계에서 실패한다.",
+    "파일 이름은 정확히 abap/<타입디렉토리>/<오브젝트이름>.<확장자> 형식만 써라:" +
+      " 테이블 abap/tabl/*.tabl.abap, CDS 뷰 abap/ddls/*.ddls.abap," +
+      " Behavior Definition abap/bdef/*.bdef.abap, 인터페이스 abap/intf/*.intf.abap," +
+      " 클래스 abap/clas/*.clas.abap, 클래스 로컬 타입(CCIMP — RAP 핸들러 lhc_*·세이버 lsc_*) abap/clas/*.clas.locals_imp.abap," +
+      " Metadata Extension abap/ddlx/*.ddlx.abap, Service Definition abap/srvd/*.srvd.abap." +
+      " Behavior Pool(ZBP_*)은 메인 파일에 'CLASS zbp_x DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF <루트 엔터티>.'를," +
+      " 핸들러 구현은 같은 이름의 .clas.locals_imp.abap 파일에 써라." +
+      " Service Binding(SRVB)은 파일로 만들 수 없다 — 필요하면 작업 결과에 '수동 생성 필요'로 적어라." +
+      " abapGit 스타일의 *.clas.testclasses.abap, *.clas.locals_def.abap, macros 파일 등" +
+      " 이 목록에 없는 보조 파일은 절대 만들지 마라 — 적용 단계에서 실패한다.",
+    "승인 시 테이블 → CDS → BDEF → 클래스 → Metadata Extension → Service Definition 순으로 저장한 뒤" +
+      " 한 번에 활성화하므로, 서로 참조하는 오브젝트를 한 작업에서 함께 만들어도 된다.",
     "유닛 테스트가 필요하면 별도 파일을 만들지 말고, 클래스 소스 파일 안에 로컬 테스트 클래스" +
       "(CLASS ltcl_... DEFINITION FOR TESTING ... )를 같은 파일에 포함시켜라.",
     "이 폴더 밖의 파일은 건드리지 말고, abap/ 안의 기존 파일을 rename하지 마라" +
