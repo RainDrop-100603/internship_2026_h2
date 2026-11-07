@@ -1,10 +1,25 @@
 import crossSpawn from "cross-spawn";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
+const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const schemaPath = path.join(__dirname, "review-schema.json");
+
+// Codex CLI는 -s read-only로 실행해도 샌드박스 진입 전에 cwd에 자체
+// 부트스트랩 파일(.codex/config.toml, AGENTS.md)을 만들어둔다. 리뷰 대상
+// diff와 무관한 이 파일들이 남아있으면 리뷰 직후의 assertFrozenTarget이
+// "추가 변경 발생"으로 오판해 실패한다 — 리뷰가 끝나면 지워준다.
+async function cleanupCodexArtifacts(worktreeDir) {
+  try {
+    await execFileAsync("git", ["clean", "-fd", "--", ".codex", "AGENTS.md"], { cwd: worktreeDir });
+  } catch {
+    // 지울 게 없거나 git 호출이 실패해도 리뷰 결과 자체에는 영향 없음 — 무시.
+  }
+}
 
 function buildPrompt({ instruction, extraInstruction, baseSha, targetSha }) {
   const lines = [
@@ -172,7 +187,8 @@ export function requestReview({
       prompt,
     ],
     { cwd: worktreeDir, timeoutMs: 15 * 60 * 1000 }
-  ).then(({ usage, threadId }) => {
+  ).then(async ({ usage, threadId }) => {
+    await cleanupCodexArtifacts(worktreeDir);
     const raw = fs.readFileSync(resultPath, "utf8");
     const result = parseJsonLoose(raw);
     return {
