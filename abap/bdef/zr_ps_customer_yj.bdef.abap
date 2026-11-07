@@ -16,6 +16,7 @@ authorization master ( global )
 
   create;
   update;
+  internal delete;
 
   determination setCustomerId on save { create; }
 

@@ -37,8 +37,6 @@ CLASS lhc_customer IMPLEMENTATION.
                               THEN if_abap_behv=>auth-allowed
                               ELSE if_abap_behv=>auth-unauthorized ).
 
-    result-%delete = if_abap_behv=>auth-unauthorized.
-
   ENDMETHOD.
 
   METHOD setCustomerId.
@@ -58,30 +56,22 @@ CLASS lhc_customer IMPLEMENTATION.
 
     IF has_customers_to_update = abap_true.
 
-      " 번호 범위 객체(NR_RANGE_NR '01', OBJECT 'ZCUSTNR_YJ')로 채번을 직렬화한다.
-      " MAX(customer_id)+1 방식은 동시 생성 시 중복 ID가 발생할 수 있어 사용하지 않는다.
-      " 번호 범위 객체는 파일로 만들 수 없으므로 SNRO에서 사전 생성되어 있어야 한다
-      " (object ZCUSTNR_YJ, 구간 01, 자릿수 9, 1 ~ 999999999).
+      " 기존 최대 CustomerId('C' + 9자리 숫자)를 조회해 다음 번호부터 채번한다.
+      " 동시 생성 시 같은 최대값을 기준으로 중복 ID가 생길 수 있으나, Mock-up
+      " 범위에서는 이 가능성을 허용한다(번호 범위 객체는 서버에 없어 사용하지 않음).
+      SELECT SINGLE MAX( customer_id ) FROM zps_customer_yj
+        WHERE customer_id LIKE 'C%'
+        INTO @DATA(lv_max_customer_id).
+
+      DATA(lv_next_nr) = COND i( WHEN lv_max_customer_id IS NOT INITIAL
+                                  THEN lv_max_customer_id+1(9)
+                                  ELSE 0 ).
+
       LOOP AT customers INTO DATA(customer) WHERE CustomerId IS INITIAL.
 
-        TRY.
-            cl_numberrange_runtime=>number_get(
-              EXPORTING
-                nr_range_nr = '01'
-                object      = 'ZCUSTNR_YJ'
-              IMPORTING
-                number      = DATA(lv_next_nr) ).
-          CATCH cx_number_ranges.
-            " 채번 실패(번호 범위 미설정/소진 등) 시 CustomerId를 비워 둔 채 넘긴다.
-            " validateCustomerId가 저장 단계에서 이를 잡아 저장을 막는다.
-            CONTINUE.
-        ENDTRY.
+        lv_next_nr = lv_next_nr + 1.
 
-        " NUMBER_GET은 번호를 20자리 숫자 텍스트로 반환하며 실제 값은 앞쪽에 0이
-        " 채워진 상태로 들어있다(예: 9자리 범위라도 20자리 중 뒤쪽 9자리가 실값).
-        " NUMC 간 대입은 자릿수가 달라도 수치로 변환되므로, NUMC9로 변환해
-        " 실제 번호(뒤쪽 9자리)만 정확히 취득한다.
-        DATA(lv_customer_id) = |C{ CONV numc9( lv_next_nr ) }|.
+        DATA(lv_customer_id) = |C{ lv_next_nr WIDTH = 9 ALIGN = RIGHT PAD = '0' }|.
 
         MODIFY ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
           ENTITY Customer
