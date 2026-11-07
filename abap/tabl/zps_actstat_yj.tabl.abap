@@ -4,6 +4,7 @@
 @AbapCatalog.deliveryClass : #A
 @AbapCatalog.dataMaintenance : #RESTRICTED
 define table zps_actstat_yj {
+
   key client : abap.clnt not null;
   key code   : abap.char(4) not null;
   name       : abap.char(40);
