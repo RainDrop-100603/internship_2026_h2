@@ -56,7 +56,7 @@
 
 ## 4. 진행 단계
 
-각 단계는 통합 콘솔에서 `ABAP 모드 → Claude 구현 → diff·Codex 리뷰 → 승인(apply) → 서버 재조회·Fiori 미리보기로 확인` 순서로 처리한다.
+각 단계는 통합 콘솔에서 `ABAP 모드 → Claude 구현 → diff·Codex 리뷰 → 승인(apply) → 서버 재조회·Fiori 미리보기로 확인` 순서로 처리한다. 단계별 콘솔 프롬프트와 승인 후 확인 항목은 [prompts.md](prompts.md)에 모아 두었다.
 
 | 단계 | 내용 | 완료 기준 |
 |---|---|---|
