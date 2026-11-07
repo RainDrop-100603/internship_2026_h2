@@ -25,8 +25,9 @@ export function createTask(projectId, instruction, abapMode) {
   });
 }
 
-export function getAgentSettings() {
-  return apiFetch("/api/settings");
+// refresh=true면 서버가 사용자 환경의 모델 목록을 다시 조회한다.
+export function getAgentSettings(refresh = false) {
+  return apiFetch(refresh ? "/api/settings?refresh=1" : "/api/settings");
 }
 
 export function saveAgentSettings(settings) {
@@ -103,11 +104,20 @@ export function requestCodexReview(taskId, instruction) {
   });
 }
 
-export function requestRevision(taskId, instruction) {
+// fromAbapErrors=true면 Codex 리뷰 대신 서버 검사·승인 오류를 바탕으로 수정을 요청한다.
+export function requestRevision(taskId, instruction, fromAbapErrors = false) {
   return apiFetch(`/api/tasks/${taskId}/revise`, {
     method: "POST",
-    body: JSON.stringify({ instruction: instruction || "" }),
+    body: JSON.stringify({ instruction: instruction || "", fromAbapErrors }),
   });
+}
+
+export function requestAbapCheck(taskId) {
+  return apiFetch(`/api/tasks/${taskId}/abap-check`, { method: "POST", body: "{}" });
+}
+
+export function getAbapCheck(taskId) {
+  return apiFetch(`/api/tasks/${taskId}/abap-check`);
 }
 
 export function getCodexReview(taskId) {

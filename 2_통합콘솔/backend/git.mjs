@@ -39,6 +39,10 @@ export async function removeWorktree({ projectPath, worktreeDir }) {
   await git(["worktree", "remove", worktreeDir, "--force"], projectPath);
 }
 
+export async function pruneWorktrees({ projectPath }) {
+  await git(["worktree", "prune"], projectPath);
+}
+
 export async function getRevision(cwd, ref) {
   return git(["rev-parse", ref], cwd);
 }
@@ -76,7 +80,9 @@ export async function restoreFrozenTarget({ worktreeDir, targetSha }) {
 
 // 승인 시 원 프로젝트 브랜치로 병합한다. fast-forward만 허용해 충돌/의도치 않은
 // 병합 커밋을 만들지 않는다 — base가 그 사이 움직였다면 실패시키고 사용자에게 알린다.
-export async function fastForwardMerge({ projectPath, targetSha, expectedBaseBranch, expectedBaseSha }) {
+// fast-forward 승인이 가능한 상태인지 확인한다. ABAP 모드에서는 서버 반영 *전에* 호출해야
+// "서버에는 반영됐는데 git 병합은 실패"하는 어긋난 상태를 막을 수 있다.
+export async function assertFastForwardable({ projectPath, expectedBaseBranch, expectedBaseSha }) {
   const currentBranch = await getCurrentBranch(projectPath);
   if (currentBranch !== expectedBaseBranch) {
     throw new Error(
@@ -90,7 +96,10 @@ export async function fastForwardMerge({ projectPath, targetSha, expectedBaseBra
       `기준 브랜치가 작업 시작 후 변경되었습니다. 예상 ${expectedBaseSha}, 현재 ${currentSha}`
     );
   }
+}
 
+export async function fastForwardMerge({ projectPath, targetSha, expectedBaseBranch, expectedBaseSha }) {
+  await assertFastForwardable({ projectPath, expectedBaseBranch, expectedBaseSha });
   await git(["merge", "--ff-only", targetSha], projectPath);
   return getRevision(projectPath, "HEAD");
 }

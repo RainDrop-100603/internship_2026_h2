@@ -6,6 +6,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import {
   createWorktree,
   removeWorktree,
+  pruneWorktrees,
   getCurrentBranch,
   ensureInitialCommit,
   getRevision,
@@ -14,11 +15,21 @@ import {
   deleteBranch,
   branchExists,
   assertFrozenTarget,
+  assertFastForwardable,
   restoreFrozenTarget,
 } from "./git.mjs";
 import { collectDiff, saveSnapshot } from "./diff.mjs";
 import { requestReview } from "./codexReview.mjs";
-import { pullAbapObjects, applyAbapChanges } from "./abapSync.mjs";
+import {
+  pullAbapObjects,
+  applyAbapChanges,
+  rehearseAbapChanges,
+  deleteRehearsalObjects,
+  rehearsalKey,
+  classifyAbapFile,
+} from "./abapSync.mjs";
+import { resolveAgentConfig } from "./settings.mjs";
+import { readCodexSessionModel, sameModel } from "./modelCatalog.mjs";
 
 const ABAP_SYNC_PACKAGE = process.env.ABAP_SYNC_PACKAGE || "ZPKG_YJ_1014";
 
@@ -57,6 +68,10 @@ let activeTaskId = null;
 let pendingReviewTaskId = null;
 let pendingCleanupTaskId = null;
 let tasksFile = null;
+// 승인(서버 반영 + 병합)이 진행 중인 작업 ID. 메모리에만 둔다.
+const approvingTaskIds = new Set();
+// 승인 전 서버 검사(리허설)가 진행 중인 작업 ID. 검사와 승인·수정이 겹치지 않게 한다.
+const abapCheckingTaskIds = new Set();
 
 function persistedTask(task) {
   const { queryHandle, abortController, timeoutHandle, ...data } = task;
@@ -155,6 +170,10 @@ function beginAgentRun(task, { agent, kind, config }) {
     kind,
     requestedModel: config.model,
     effort: config.effort,
+    // 요청 모델이 실제로 가리키는 모델 ID(카탈로그 기준). 실행 후 보고된 모델과 비교한다.
+    expectedModel: config.expectedModel ?? null,
+    mainModel: null,
+    modelMismatch: null,
     actualModels: [],
     actualEffort: null,
     modelSource: null,
@@ -177,6 +196,16 @@ export function applyClaudeRuntimeMetadata(run, message) {
   if (message.model && !run.actualModels.includes(message.model)) {
     run.actualModels.push(message.model);
     run.modelSource = "reported";
+    changed = true;
+  }
+  // init의 model이 이 세션의 주 모델이다. result의 modelUsage에 함께 나오는 다른 모델(예: Haiku)은
+  // SDK가 내부 보조 작업에 쓰는 것이라 주 모델과 구분한다.
+  if (message.model && run.mainModel !== message.model) {
+    run.mainModel = message.model;
+    run.modelMismatch =
+      run.expectedModel && !sameModel(run.expectedModel, message.model)
+        ? { expected: run.expectedModel, actual: message.model }
+        : null;
     changed = true;
   }
   if (message.effort && run.actualEffort !== message.effort) {
@@ -348,7 +377,8 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
       task.queryHandle?.close?.();
     }, timeoutMs);
 
-    const claudeConfig = getTaskAgentConfig(task, "claude");
+    // 지정한 모델을 이 환경에서 쓸 수 없으면 기본 모델로 바꾸지 않고 여기서 실패시킨다.
+    const claudeConfig = await resolveAgentConfig("claude", getTaskAgentConfig(task, "claude"));
     agentRun = beginAgentRun(task, { agent: "claude", kind: "implementation", config: claudeConfig });
     publishRun(task, agentRun, broadcast);
 
@@ -436,6 +466,14 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
 function handleMessage(task, message, broadcast, agentRun) {
   if (applyClaudeRuntimeMetadata(agentRun, message)) {
     publishRun(task, agentRun, broadcast);
+    if (agentRun.modelMismatch) {
+      const { expected, actual } = agentRun.modelMismatch;
+      emit(
+        task,
+        { type: "log", role: "도구", text: `⚠ 요청한 모델(${expected})과 실제 실행 모델(${actual})이 다릅니다.` },
+        broadcast
+      );
+    }
   }
 
   if (message.type === "assistant") {
@@ -522,7 +560,15 @@ async function cleanupArtifacts(task) {
     try {
       await removeWorktree({ projectPath: task.projectPath, worktreeDir: task.worktreeDir });
     } catch (err) {
-      errors.push(String(err?.message ?? err));
+      // Windows에서 중단 직후에는 Claude 프로세스가 아직 폴더를 잡고 있어, git이 worktree 등록은
+      // 지우고 폴더 삭제만 실패(Permission denied)할 수 있다. 그 뒤 재시도하면 "is not a working tree".
+      // 폴더는 콘솔 전용 .runtime/worktrees 아래이므로 직접 지우고(잠금이 풀릴 때까지 재시도) 등록을 정리한다.
+      try {
+        fs.rmSync(task.worktreeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+        await pruneWorktrees({ projectPath: task.projectPath });
+      } catch (fallbackErr) {
+        errors.push(`${String(err?.message ?? err)}\n${String(fallbackErr?.message ?? fallbackErr)}`);
+      }
     }
   }
 
@@ -581,29 +627,129 @@ export async function approveTask(id, expectedSnapshot, broadcast) {
     throw new Error("Codex 리뷰가 진행 중입니다. 완료 후 다시 시도해주세요.");
   }
 
-  assertExpectedSnapshot(task, expectedSnapshot);
-  await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
+  // ABAP 반영은 수십 초 걸린다. 그 사이 다시 승인이 들어오면 같은 오브젝트를 두 번 생성하려다
+  // 꼬이므로(2026-11-07 실제 발생) 진행 중인 승인이 있으면 거부한다.
+  if (abapCheckingTaskIds.has(task.id)) {
+    throw new Error("서버 검사가 진행 중입니다. 검사가 끝난 뒤 승인해주세요.");
+  }
+  if (approvingTaskIds.has(task.id)) {
+    throw new Error("이 작업의 승인(서버 반영)이 이미 진행 중입니다. 완료될 때까지 기다려주세요.");
+  }
+  approvingTaskIds.add(task.id);
+  try {
+    assertExpectedSnapshot(task, expectedSnapshot);
+    await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
+    // 서버 반영 전에 git 병합 가능 여부부터 확인한다 — 반영 후에 병합이 막히면 되돌릴 수 없다.
+    await assertFastForwardable({
+      projectPath: task.projectPath,
+      expectedBaseBranch: task.baseBranch,
+      expectedBaseSha: task.mergeBaseSha,
+    });
 
-  let applyResult = null;
-  if (task.abapMode) {
-    applyResult = await applyAbapChanges({
+    let applyResult = null;
+    if (task.abapMode) {
+      applyResult = await applyAbapChanges({
+        worktreeDir: task.worktreeDir,
+        changedFiles: task.diff.changedFiles,
+        packageName: ABAP_SYNC_PACKAGE,
+      });
+      task.applyResult = applyResult;
+      if (applyResult.failed.length > 0) {
+        // 실패하기 전까지 새로 만든 오브젝트는 검사(리허설)로 만든 것과 같이 취급해, 이 작업을 반려하면 지운다.
+        const createdKeys = applyResult.applied
+          .filter((a) => a.action === "create")
+          .map((a) => rehearsalKey(classifyAbapFile(a.path)?.kind, a.name));
+        task.abapRehearsalObjects = [...new Set([...(task.abapRehearsalObjects ?? []), ...createdKeys])];
+        const summary = applyResult.failed.map((f) => `${f.name ?? f.path}: ${f.reason}`).join("; ");
+        emit(
+          task,
+          { type: "status", status: "completed", applyFailed: true, applyResult },
+          broadcast
+        );
+        throw new Error(`ABAP 반영 실패 (${applyResult.failed.length}건) — 머지하지 않았습니다: ${summary}`);
+      }
+    }
+
+    // 검사 단계에서 미리 만든 오브젝트는 이제 승인된 정식 오브젝트다 — 반려 시 삭제 대상에서 뺀다.
+    task.abapRehearsalObjects = [];
+    await finalizeApproved(task, broadcast, { applyResult });
+    return task;
+  } finally {
+    approvingTaskIds.delete(task.id);
+  }
+}
+
+async function rollbackAbapRehearsal(task, broadcast) {
+  const objects = task.abapRehearsalObjects ?? [];
+  if (objects.length === 0) return;
+  try {
+    const { deleted, failed } = await deleteRehearsalObjects({ objects });
+    task.abapRehearsalObjects = failed.map((f) => f.key);
+    const text = failed.length
+      ? `검사용으로 만든 오브젝트 ${deleted.length}개 삭제, ${failed.length}개 삭제 실패(Eclipse에서 직접 삭제 필요): ${failed.map((f) => f.key).join(", ")}`
+      : `검사용으로 만든 오브젝트 ${deleted.length}개를 서버에서 삭제했습니다.`;
+    emit(task, { type: "log", role: "도구", text }, broadcast);
+  } catch (err) {
+    emit(
+      task,
+      { type: "log", role: "도구", text: `검사용 오브젝트 삭제 실패(Eclipse에서 직접 삭제 필요): ${String(err?.message ?? err)}` },
+      broadcast
+    );
+  }
+}
+
+export function checkAbapTask(id, broadcast) {
+  const task = tasks.get(id);
+  if (!task || task.id !== pendingReviewTaskId || task.status !== "completed") {
+    throw new Error("서버 검사 대상 작업이 아닙니다.");
+  }
+  if (!task.abapMode) throw new Error("ABAP 모드 작업에서만 서버 검사를 할 수 있습니다.");
+  if (activeTaskId || task.review?.status === "running") {
+    throw new Error("다른 작업 또는 리뷰가 진행 중입니다.");
+  }
+  if (abapCheckingTaskIds.has(task.id) || approvingTaskIds.has(task.id)) {
+    throw new Error("서버 검사 또는 승인이 이미 진행 중입니다.");
+  }
+
+  abapCheckingTaskIds.add(task.id);
+  task.abapCheck = { status: "running", targetSha: task.targetSha, startedAt: new Date().toISOString() };
+  emit(task, { type: "abap_check", status: "running" }, broadcast);
+
+  (async () => {
+    await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
+    return rehearseAbapChanges({
       worktreeDir: task.worktreeDir,
       changedFiles: task.diff.changedFiles,
       packageName: ABAP_SYNC_PACKAGE,
+      rehearsalObjects: task.abapRehearsalObjects ?? [],
     });
-    task.applyResult = applyResult;
-    if (applyResult.failed.length > 0) {
-      const summary = applyResult.failed.map((f) => `${f.name ?? f.path}: ${f.reason}`).join("; ");
-      emit(
-        task,
-        { type: "status", status: "completed", applyFailed: true, applyResult },
-        broadcast
-      );
-      throw new Error(`ABAP 반영 실패 (${applyResult.failed.length}건) — 머지하지 않았습니다: ${summary}`);
-    }
-  }
-
-  await finalizeApproved(task, broadcast, { applyResult });
+  })()
+    .then((result) => {
+      task.abapRehearsalObjects = result.created;
+      task.abapCheck = {
+        status: "done",
+        targetSha: task.targetSha,
+        startedAt: task.abapCheck.startedAt,
+        completedAt: new Date().toISOString(),
+        ok: result.ok,
+        counts: result.counts,
+        results: result.results,
+      };
+      emit(task, { type: "abap_check", status: "done", ok: result.ok, counts: result.counts }, broadcast);
+    })
+    .catch((err) => {
+      task.abapCheck = {
+        status: "failed",
+        targetSha: task.targetSha,
+        startedAt: task.abapCheck.startedAt,
+        completedAt: new Date().toISOString(),
+        error: String(err?.message ?? err),
+      };
+      emit(task, { type: "abap_check", status: "failed", error: task.abapCheck.error }, broadcast);
+    })
+    .finally(() => {
+      abapCheckingTaskIds.delete(task.id);
+    });
   return task;
 }
 
@@ -621,6 +767,10 @@ export async function rejectTask(id, reason, expectedSnapshot, broadcast) {
 
   assertExpectedSnapshot(task, expectedSnapshot);
   await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
+  if (abapCheckingTaskIds.has(task.id)) {
+    throw new Error("서버 검사가 진행 중입니다. 검사가 끝난 뒤 반려해주세요.");
+  }
+  await rollbackAbapRehearsal(task, broadcast);
   const cleaned = await cleanupArtifacts(task);
   if (!cleaned) throw new Error(`worktree 정리 실패: ${task.cleanupError}`);
 
@@ -680,8 +830,11 @@ function abapPreamble() {
       " 한 번에 활성화하므로, 서로 참조하는 오브젝트를 한 작업에서 함께 만들어도 된다.",
     "이 작업에서는 SAP 서버에 직접 접근하는 도구(MCP)를 쓸 수 없다. 서버 문법 검사·활성화는 사용자가 승인할 때" +
       " 수행되므로, 서버에서만 확인 가능한 부분은 최종 결과에 '승인 후 확인 필요'로 적어라.",
-    "유닛 테스트가 필요하면 별도 파일을 만들지 말고, 클래스 소스 파일 안에 로컬 테스트 클래스" +
-      "(CLASS ltcl_... DEFINITION FOR TESTING ... )를 같은 파일에 포함시켜라.",
+    "작업 지시에 유닛 테스트가 명시되지 않았으면 테스트 클래스를 만들지 마라 (리뷰 반영 수정 중에도 마찬가지)." +
+      " 서버 문법 검사는 승인할 때에야 돌기 때문에, 요청하지 않은 코드는 승인 실패 원인만 늘린다." +
+      " 테스트가 명시된 경우에만 별도 파일 없이 클래스 소스 안에 로컬 테스트 클래스(CLASS ltcl_... DEFINITION FOR TESTING)로 작성하라.",
+    "ABAP 식별자(메서드·변수·클래스 이름)는 30자를 넘지 않게 하고, 존재하지 않는 타입(예: NUMC9)을 만들어 쓰지 말고" +
+      " 내장 타입(TYPE n LENGTH 9 등)이나 테이블 필드 타입을 써라.",
     "이 폴더 밖의 파일은 건드리지 말고, abap/ 안의 기존 파일을 rename하지 마라" +
       " (rename은 지원하지 않아 적용 단계에서 실패한다).",
   ].join(" ");
@@ -701,14 +854,42 @@ function buildRevisionPrompt(task, extraInstruction) {
     `원래 작업 요청: ${task.instruction}`,
     `리뷰 요약: ${review.summary || "없음"}`,
     `리뷰 findings: ${JSON.stringify(findings, null, 2)}`,
-    "리뷰 지적을 실제 코드와 대조한 뒤 타당한 문제를 수정하고, 관련 테스트도 보완해줘.",
+    "리뷰 지적을 실제 코드와 대조한 뒤 타당한 문제를 수정해줘. 기존 테스트가 깨지면 함께 고치되," +
+      " 원래 작업 요청에 테스트가 없었다면 새 테스트 클래스를 추가하지 마.",
     "현재 작업 범위를 벗어난 변경은 만들지 마.",
   ];
   if (extraInstruction) lines.push(`사용자 추가 지시: ${extraInstruction}`);
   return lines.join("\n\n");
 }
 
-export async function requestRevision({ id, extraInstruction, reviewsRoot }, broadcast) {
+// 승인 전 서버 검사나 승인(서버 반영)에서 나온 오류를 Claude가 고치도록 하는 수정 프롬프트.
+// Codex 리뷰 없이도 요청할 수 있다.
+export function collectAbapErrors(task) {
+  const fromCheck = (task.abapCheck?.status === "done" ? task.abapCheck.results ?? [] : [])
+    .filter((r) => r.status === "error")
+    .map((r) => ({ file: r.path, object: r.name, source: "서버 검사", message: r.message }));
+  const fromApply = (task.applyResult?.failed ?? []).map((f) => ({
+    file: f.path,
+    object: f.name,
+    source: "승인(서버 반영)",
+    message: f.reason,
+  }));
+  return [...fromCheck, ...fromApply];
+}
+
+function buildAbapFixPrompt(task, errors, extraInstruction) {
+  const lines = [
+    "SAP 서버 검사에서 아래 오류가 나왔다. 오류가 난 부분만 고쳐줘.",
+    `원래 작업 요청: ${task.instruction}`,
+    `서버 오류: ${JSON.stringify(errors, null, 2)}`,
+    "오류 메시지를 실제 코드와 대조해 원인을 고치고, 관련 없는 코드는 바꾸지 마." +
+      " 새 기능·새 테스트 클래스를 추가하지 마. 고친 내용을 결과 요약에 오류별로 적어라.",
+  ];
+  if (extraInstruction) lines.push(`사용자 추가 지시: ${extraInstruction}`);
+  return lines.join("\n\n");
+}
+
+export async function requestRevision({ id, extraInstruction, reviewsRoot, fromAbapErrors = false }, broadcast) {
   const task = tasks.get(id);
   if (!task || task.id !== pendingReviewTaskId || task.status !== "completed") {
     throw new Error("수정 요청 대상 작업이 아닙니다.");
@@ -716,7 +897,14 @@ export async function requestRevision({ id, extraInstruction, reviewsRoot }, bro
   if (activeTaskId || task.review?.status === "running") {
     throw new Error("다른 작업 또는 리뷰가 진행 중입니다.");
   }
-  if (task.review?.status !== "done") {
+  if (abapCheckingTaskIds.has(task.id) || approvingTaskIds.has(task.id)) {
+    throw new Error("서버 검사 또는 승인이 진행 중입니다. 끝난 뒤 다시 시도해주세요.");
+  }
+  let abapErrors = null;
+  if (fromAbapErrors) {
+    abapErrors = collectAbapErrors(task);
+    if (abapErrors.length === 0) throw new Error("수정할 서버 오류가 없습니다.");
+  } else if (task.review?.status !== "done") {
     throw new Error("완료된 Codex 리뷰가 있어야 수정 요청을 할 수 있습니다.");
   }
 
@@ -736,15 +924,18 @@ export async function requestRevision({ id, extraInstruction, reviewsRoot }, bro
   activeTaskId = task.id;
   emit(task, { type: "status", status: "revising" }, broadcast);
 
-  runRevision(task, { previous, extraInstruction, reviewsRoot, broadcast }).catch(() => {});
+  runRevision(task, { previous, extraInstruction, abapErrors, reviewsRoot, broadcast }).catch(() => {});
   return task;
 }
 
-async function runRevision(task, { previous, extraInstruction, reviewsRoot, broadcast }) {
+async function runRevision(task, { previous, extraInstruction, abapErrors = null, reviewsRoot, broadcast }) {
   const timeoutMs = taskTimeoutMs();
   let agentRun = null;
   try {
-    emit(task, { type: "log", role: "Claude", text: "Codex 리뷰를 바탕으로 수정 작업을 시작합니다." }, broadcast);
+    const startText = abapErrors
+      ? `서버 오류 ${abapErrors.length}건을 바탕으로 수정 작업을 시작합니다.`
+      : "Codex 리뷰를 바탕으로 수정 작업을 시작합니다.";
+    emit(task, { type: "log", role: "Claude", text: startText }, broadcast);
     task.timeoutMs = timeoutMs;
     task.timeoutHandle = setTimeout(() => {
       task.timedOut = true;
@@ -752,7 +943,8 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
       task.queryHandle?.close?.();
     }, timeoutMs);
 
-    const claudeConfig = getTaskAgentConfig(task, "claude");
+    // 지정한 모델을 이 환경에서 쓸 수 없으면 기본 모델로 바꾸지 않고 여기서 실패시킨다.
+    const claudeConfig = await resolveAgentConfig("claude", getTaskAgentConfig(task, "claude"));
     agentRun = beginAgentRun(task, {
       agent: "claude",
       kind: `revision-${(task.revisionCount ?? 0) + 1}`,
@@ -760,7 +952,9 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
     });
     publishRun(task, agentRun, broadcast);
 
-    const revisionPrompt = buildRevisionPrompt(task, extraInstruction);
+    const revisionPrompt = abapErrors
+      ? buildAbapFixPrompt(task, abapErrors, extraInstruction)
+      : buildRevisionPrompt(task, extraInstruction);
     const q = query({
       prompt: task.abapMode ? `${abapPreamble()}\n\n${revisionPrompt}` : revisionPrompt,
       options: {
@@ -797,7 +991,7 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
     });
 
     task.reviewHistory ??= [];
-    task.reviewHistory.push({
+    if (previous.review) task.reviewHistory.push({
       ...previous.review,
       reviewedTargetSha: previous.targetSha,
       supersededAt: new Date().toISOString(),
@@ -805,6 +999,9 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
     task.targetSha = targetSha;
     task.diff = diffResult;
     task.review = null;
+    // 코드가 바뀌었으니 이전 검사·반영 결과는 더 이상 유효하지 않다 (리허설 오브젝트 목록은 유지).
+    task.abapCheck = null;
+    task.applyResult = null;
     task.revisionCount = revisionNumber;
     task.finishedAt = new Date().toISOString();
     task.error = null;
@@ -887,8 +1084,12 @@ export function requestCodexReview({ id, extraInstruction, reviewsRoot }, broadc
   publishRun(task, agentRun, broadcast);
   emit(task, { type: "review_status", status: "running" }, broadcast);
 
+  let resolvedCodex = codexConfig;
   (async () => {
     await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
+    // 지정한 모델을 이 환경에서 쓸 수 없으면 리뷰를 시작하지 않는다 (조용히 다른 모델로 바꾸지 않음).
+    resolvedCodex = await resolveAgentConfig("codex", codexConfig);
+    agentRun.expectedModel = resolvedCodex.expectedModel ?? null;
 
     const result = await requestReview({
       worktreeDir: task.worktreeDir,
@@ -898,8 +1099,8 @@ export function requestCodexReview({ id, extraInstruction, reviewsRoot }, broadc
       extraInstruction,
       baseSha: task.baseSha,
       targetSha: task.targetSha,
-      model: codexConfig.model,
-      effort: codexConfig.effort,
+      model: resolvedCodex.model,
+      effort: resolvedCodex.effort,
     });
     await assertFrozenTarget({ worktreeDir: task.worktreeDir, targetSha: task.targetSha });
     return result;
@@ -908,10 +1109,25 @@ export function requestCodexReview({ id, extraInstruction, reviewsRoot }, broadc
       agentRun.status = "done";
       agentRun.usage = result.usage ?? null;
       agentRun.threadId = result.threadId ?? null;
-      agentRun.actualModels = codexConfig.model === "default" ? [] : [codexConfig.model];
-      agentRun.actualEffort = codexConfig.effort ?? null;
-      agentRun.modelSource = codexConfig.model === "default" ? null : "configured";
-      agentRun.effortSource = codexConfig.effort ? "configured" : null;
+      // Codex CLI 출력에는 실행 모델이 없어서, 세션 기록의 turn_context에서 실제 값을 읽는다.
+      // 읽지 못하면 예전처럼 설정값을 "적용 모델"로 표시한다.
+      const reported = readCodexSessionModel(agentRun.threadId);
+      if (reported) {
+        agentRun.actualModels = [reported.model];
+        agentRun.mainModel = reported.model;
+        agentRun.modelSource = "reported";
+        agentRun.actualEffort = reported.effort;
+        agentRun.effortSource = reported.effort ? "reported" : null;
+        agentRun.modelMismatch =
+          agentRun.expectedModel && !sameModel(agentRun.expectedModel, reported.model)
+            ? { expected: agentRun.expectedModel, actual: reported.model }
+            : null;
+      } else {
+        agentRun.actualModels = resolvedCodex.model === "default" ? [] : [resolvedCodex.model];
+        agentRun.actualEffort = resolvedCodex.effort ?? null;
+        agentRun.modelSource = resolvedCodex.model === "default" ? null : "configured";
+        agentRun.effortSource = resolvedCodex.effort ? "configured" : null;
+      }
       agentRun.completedAt = new Date().toISOString();
       task.review = {
         status: "done",

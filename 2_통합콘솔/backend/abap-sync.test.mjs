@@ -97,3 +97,53 @@ test("planAbapChanges: 미지원 파일·rename은 실패로 모은다", () => {
   ]);
   assert.equal(failed.length, 2);
 });
+
+test("parseSearchResult: SearchObject TSV 응답을 행으로 나눈다", async () => {
+  const { parseSearchResult } = await import("./abapSync.mjs");
+  const raw =
+    "name\ttype\tdescription\tpackage\n" +
+    "ZPS_CUSTOMER_YJ\tTABL/DT\tCustomer Master\tZPKG_YJ_1014\n" +
+    "ZPS_CUST_D_YJ\tTABL/DT\tCustomer Master - Draft\tZPKG_YJ_1014\n";
+  assert.deepEqual(parseSearchResult(raw), [
+    { name: "ZPS_CUSTOMER_YJ", type: "TABL/DT", packageName: "ZPKG_YJ_1014" },
+    { name: "ZPS_CUST_D_YJ", type: "TABL/DT", packageName: "ZPKG_YJ_1014" },
+  ]);
+  assert.deepEqual(parseSearchResult(""), []);
+  assert.deepEqual(parseSearchResult("name\ttype\tdescription\tpackage\n"), []);
+});
+
+test("findLongIdentifiers: 30자 넘는 이름만 찾고 문자열·주석은 무시한다", async () => {
+  const { findLongIdentifiers } = await import("./abapSync.mjs");
+  const source = [
+    "* comment with customerId_reassigned_on_conflict_x",
+    "METHODS customerId_reassigned_on_conflict FOR TESTING.",
+    "DATA(text) = 'a_very_long_string_literal_value_more_than_30'. \" trailing_comment_identifier_longer_than_30",
+    "DATA(t2) = |template_literal_that_is_longer_than_thirty|.",
+    "result-%action-Edit = if_abap_behv=>auth-allowed.",
+  ].join("\n");
+  const found = findLongIdentifiers(source);
+  assert.deepEqual(found.map((f) => f.name), ["customerId_reassigned_on_conflict"]);
+  assert.equal(found[0].line, 2);
+});
+
+test("collectAbapErrors: 서버 검사 오류와 승인 실패를 합친다", async () => {
+  const { collectAbapErrors } = await import("./taskManager.mjs");
+  const errors = collectAbapErrors({
+    abapCheck: {
+      status: "done",
+      results: [
+        { path: "abap/tabl/a.tabl.abap", name: "A", status: "ok", message: "" },
+        { path: "abap/clas/b.clas.locals_imp.abap", name: "B", status: "error", message: "NUMC9 unknown" },
+      ],
+    },
+    applyResult: { failed: [{ path: "abap", name: "활성화", reason: "base entity" }] },
+  });
+  assert.deepEqual(errors.map((e) => e.source), ["서버 검사", "승인(서버 반영)"]);
+  assert.equal(errors[0].object, "B");
+});
+
+test("rehearsalKey: 로컬 인클루드는 소속 클래스 키로 묶인다", async () => {
+  const { rehearsalKey } = await import("./abapSync.mjs");
+  assert.equal(rehearsalKey("CLAS_LOCALS", "ZBP_X"), "CLAS:ZBP_X");
+  assert.equal(rehearsalKey("BDEF", "ZR_X"), "BDEF:ZR_X");
+});
