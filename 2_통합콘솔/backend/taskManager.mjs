@@ -22,6 +22,36 @@ import { pullAbapObjects, applyAbapChanges } from "./abapSync.mjs";
 
 const ABAP_SYNC_PACKAGE = process.env.ABAP_SYNC_PACKAGE || "ZPKG_YJ_1014";
 
+// 콘솔에는 도구 사용 승인 화면이 없다. 승인이 필요한 도구 호출을 SDK 기본 동작에 맡기면
+// "you haven't granted it yet"으로 거부되고, Claude가 사용자 승인을 기다리며 멈춰버린다.
+// 그래서 (1) 읽기 전용 웹 조회는 미리 허용하고, (2) 나머지는 이유를 설명하며 즉시 거부해
+// Claude가 승인 요청 없이 허용된 도구로 계속 진행하게 한다.
+const AUTO_ALLOWED_TOOLS = new Set(["WebFetch", "WebSearch"]);
+
+async function resolveWithoutPrompt(toolName, input) {
+  if (AUTO_ALLOWED_TOOLS.has(toolName)) return { behavior: "allow", updatedInput: input };
+  return {
+    behavior: "deny",
+    message:
+      `통합 콘솔에는 도구 승인 화면이 없어 ${toolName}은(는) 자동 거부된다. ` +
+      "사용자에게 승인을 요청하거나 기다리지 말고, 파일 읽기·편집 등 허용된 도구로 작업을 계속하라. " +
+      "이 도구 없이 확인하지 못한 부분은 최종 결과 요약에 '확인 필요'로 적어라.",
+  };
+}
+
+function agentQueryOptions(task) {
+  return {
+    cwd: task.worktreeDir,
+    permissionMode: "acceptEdits",
+    canUseTool: resolveWithoutPrompt,
+    // worktree는 원본 저장소의 복사본이라 .mcp.json(abap-trial)이 함께 딸려 온다.
+    // Claude가 SAP 서버를 직접 호출하면 diff·Codex 리뷰·승인을 건너뛰게 되므로 MCP는 로드하지 않는다.
+    // (ABAP 서버 반영은 승인 시 백엔드의 abapSync만 수행한다.)
+    strictMcpConfig: true,
+    abortController: task.abortController,
+  };
+}
+
 const tasks = new Map();
 let activeTaskId = null;
 let pendingReviewTaskId = null;
@@ -325,9 +355,7 @@ async function runTask(task, { baseBranch, broadcast, reviewsRoot }) {
     const q = query({
       prompt: task.abapMode ? `${abapPreamble()}\n\n${task.instruction}` : task.instruction,
       options: {
-        cwd: task.worktreeDir,
-        permissionMode: "acceptEdits",
-        abortController: task.abortController,
+        ...agentQueryOptions(task),
         ...(claudeConfig.model !== "default" ? { model: claudeConfig.model } : {}),
         ...(claudeConfig.effort ? { effort: claudeConfig.effort } : {}),
       },
@@ -650,6 +678,8 @@ function abapPreamble() {
       " 이 목록에 없는 보조 파일은 절대 만들지 마라 — 적용 단계에서 실패한다.",
     "승인 시 테이블 → CDS → BDEF → 클래스 → Metadata Extension → Service Definition 순으로 저장한 뒤" +
       " 한 번에 활성화하므로, 서로 참조하는 오브젝트를 한 작업에서 함께 만들어도 된다.",
+    "이 작업에서는 SAP 서버에 직접 접근하는 도구(MCP)를 쓸 수 없다. 서버 문법 검사·활성화는 사용자가 승인할 때" +
+      " 수행되므로, 서버에서만 확인 가능한 부분은 최종 결과에 '승인 후 확인 필요'로 적어라.",
     "유닛 테스트가 필요하면 별도 파일을 만들지 말고, 클래스 소스 파일 안에 로컬 테스트 클래스" +
       "(CLASS ltcl_... DEFINITION FOR TESTING ... )를 같은 파일에 포함시켜라.",
     "이 폴더 밖의 파일은 건드리지 말고, abap/ 안의 기존 파일을 rename하지 마라" +
@@ -734,9 +764,7 @@ async function runRevision(task, { previous, extraInstruction, reviewsRoot, broa
     const q = query({
       prompt: task.abapMode ? `${abapPreamble()}\n\n${revisionPrompt}` : revisionPrompt,
       options: {
-        cwd: task.worktreeDir,
-        permissionMode: "acceptEdits",
-        abortController: task.abortController,
+        ...agentQueryOptions(task),
         ...(claudeConfig.model !== "default" ? { model: claudeConfig.model } : {}),
         ...(claudeConfig.effort ? { effort: claudeConfig.effort } : {}),
       },
