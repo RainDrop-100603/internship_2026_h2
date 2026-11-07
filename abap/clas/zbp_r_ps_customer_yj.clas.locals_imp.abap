@@ -33,6 +33,10 @@ CLASS lhc_customer IMPLEMENTATION.
                               THEN if_abap_behv=>auth-allowed
                               ELSE if_abap_behv=>auth-unauthorized ).
 
+    result-%action-Edit = COND #( WHEN requested_authorizations-%action-Edit = if_abap_behv=>mk-on
+                              THEN if_abap_behv=>auth-allowed
+                              ELSE if_abap_behv=>auth-unauthorized ).
+
     result-%delete = if_abap_behv=>auth-unauthorized.
 
   ENDMETHOD.
@@ -224,9 +228,17 @@ CLASS ltc_customer DEFINITION FOR TESTING
       validateCountry_known_succeeds FOR TESTING RAISING cx_static_check,
       validateCountry_empty_succeeds FOR TESTING RAISING cx_static_check,
       customerId_assigned_on_save    FOR TESTING RAISING cx_static_check,
-      customerId_format_and_unique   FOR TESTING RAISING cx_static_check.
+      customerId_format_and_unique   FOR TESTING RAISING cx_static_check,
+
+      authEdit_requested_is_allowed      FOR TESTING RAISING cx_static_check,
+      authEdit_not_requested_unauthorized FOR TESTING RAISING cx_static_check.
 
 ENDCLASS.
+
+" get_global_authorizations가 PRIVATE SECTION에 있어 ltc_customer가 직접 호출할 수 있도록
+" 로컬 friend로 선언한다. draft Edit 권한 결과(%action-Edit)는 IN LOCAL MODE EML 호출로는
+" 검증되지 않으므로(권한 검사 자체를 우회), 핸들러 메서드를 직접 호출해 검증한다.
+CLASS lhc_customer DEFINITION LOCAL FRIENDS ltc_customer.
 
 
 CLASS ltc_customer IMPLEMENTATION.
@@ -234,6 +246,7 @@ CLASS ltc_customer IMPLEMENTATION.
   METHOD class_setup.
 
     cds_test_environment = cl_cds_test_environment=>create( i_for_entity = 'ZR_PS_CUSTOMER_YJ' ).
+    cds_test_environment->enable_double_redirection( ).
     sql_test_environment = cl_osql_test_environment=>create( VALUE #( ( 'ZPS_COUNTRY_YJ' ) ) ).
 
   ENDMETHOD.
@@ -453,6 +466,36 @@ CLASS ltc_customer IMPLEMENTATION.
     cl_abap_unit_assert=>assert_differs( act = customers[ 1 ]-CustomerId exp = customers[ 2 ]-CustomerId ).
 
     ROLLBACK ENTITIES.
+
+  ENDMETHOD.
+
+  METHOD authEdit_requested_is_allowed.
+
+    " Edit 요청이 있으면(%action-Edit = mk-on) 결과도 allowed여야 한다(기존 고객사 편집 가능).
+    DATA requested_authorizations TYPE STRUCTURE FOR GLOBAL AUTHORIZATION REQUEST zr_ps_customer_yj.
+    DATA result                   TYPE STRUCTURE FOR GLOBAL AUTHORIZATION RESULT zr_ps_customer_yj.
+
+    requested_authorizations-%action-Edit = if_abap_behv=>mk-on.
+
+    NEW lhc_customer( )->get_global_authorizations(
+      EXPORTING requested_authorizations = requested_authorizations
+      CHANGING  result                   = result ).
+
+    cl_abap_unit_assert=>assert_equals( act = result-%action-Edit exp = if_abap_behv=>auth-allowed ).
+
+  ENDMETHOD.
+
+  METHOD authEdit_not_requested_unauthorized.
+
+    " Edit 요청이 없으면(%action-Edit 미설정) 결과는 unauthorized로 남아야 한다.
+    DATA requested_authorizations TYPE STRUCTURE FOR GLOBAL AUTHORIZATION REQUEST zr_ps_customer_yj.
+    DATA result                   TYPE STRUCTURE FOR GLOBAL AUTHORIZATION RESULT zr_ps_customer_yj.
+
+    NEW lhc_customer( )->get_global_authorizations(
+      EXPORTING requested_authorizations = requested_authorizations
+      CHANGING  result                   = result ).
+
+    cl_abap_unit_assert=>assert_equals( act = result-%action-Edit exp = if_abap_behv=>auth-unauthorized ).
 
   ENDMETHOD.
 
