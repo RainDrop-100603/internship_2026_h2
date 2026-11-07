@@ -47,11 +47,37 @@ CLASS lhc_customer IMPLEMENTATION.
         WITH CORRESPONDING #( keys )
       RESULT DATA(customers).
 
+    " 이미 CustomerId가 있어도(draft Prepare 단계에서 미리 채번된 경우 포함)
+    " 그 번호를 활성 테이블의 다른 고객사(다른 UUID)가 먼저 쓰고 있다면
+    " 재채번 대상으로 잡는다. draft A에 Prepare를 실행해 번호를 미리 부여한 뒤
+    " 활성화를 보류하고, 그 사이 고객사 B가 같은 번호로 먼저 활성화되는
+    " 시나리오(Prepare → 다른 고객사 저장 → 기존 draft 활성화)에서, A를
+    " 활성화할 때 이 determination이 다시 실행되며 충돌을 감지해 재채번한다.
+    DATA assigned_ids TYPE SORTED TABLE OF zps_customer_yj-customer_id WITH NON-UNIQUE KEY table_line.
+
+    LOOP AT customers INTO DATA(ls_scan) WHERE CustomerId IS NOT INITIAL.
+      INSERT ls_scan-CustomerId INTO TABLE assigned_ids.
+    ENDLOOP.
+
+    DATA lt_active TYPE SORTED TABLE OF zps_customer_yj WITH NON-UNIQUE KEY customer_id.
+
+    IF assigned_ids IS NOT INITIAL.
+      SELECT customer_id, customer_uuid FROM zps_customer_yj
+        FOR ALL ENTRIES IN @assigned_ids
+        WHERE customer_id = @assigned_ids-table_line
+        INTO CORRESPONDING FIELDS OF TABLE @lt_active.
+    ENDIF.
+
     DATA has_customers_to_update TYPE abap_bool VALUE abap_false.
 
-    LOOP AT customers INTO DATA(ls_check) WHERE CustomerId IS INITIAL.
-      has_customers_to_update = abap_true.
-      EXIT.
+    LOOP AT customers INTO DATA(ls_check).
+      IF ls_check-CustomerId IS INITIAL
+         OR ( line_exists( lt_active[ customer_id = ls_check-CustomerId ] )
+              AND NOT line_exists( lt_active[ customer_id   = ls_check-CustomerId
+                                               customer_uuid = ls_check-%tky-CustomerUuid ] ) ).
+        has_customers_to_update = abap_true.
+        EXIT.
+      ENDIF.
     ENDLOOP.
 
     IF has_customers_to_update = abap_true.
@@ -67,7 +93,12 @@ CLASS lhc_customer IMPLEMENTATION.
                                   THEN lv_max_customer_id+1(9)
                                   ELSE 0 ).
 
-      LOOP AT customers INTO DATA(customer) WHERE CustomerId IS INITIAL.
+      LOOP AT customers INTO DATA(customer).
+
+        CHECK customer-CustomerId IS INITIAL
+           OR ( line_exists( lt_active[ customer_id = customer-CustomerId ] )
+                AND NOT line_exists( lt_active[ customer_id   = customer-CustomerId
+                                                 customer_uuid = customer-%tky-CustomerUuid ] ) ).
 
         lv_next_nr = lv_next_nr + 1.
 
@@ -219,6 +250,7 @@ CLASS ltc_customer DEFINITION FOR TESTING
       validateCountry_empty_succeeds FOR TESTING RAISING cx_static_check,
       customerId_assigned_on_save    FOR TESTING RAISING cx_static_check,
       customerId_format_and_unique   FOR TESTING RAISING cx_static_check,
+      customerId_reassigned_on_conflict FOR TESTING RAISING cx_static_check,
 
       authEdit_requested_is_allowed      FOR TESTING RAISING cx_static_check,
       authEdit_not_requested_unauthorized FOR TESTING RAISING cx_static_check.
@@ -454,6 +486,77 @@ CLASS ltc_customer IMPLEMENTATION.
     ENDLOOP.
 
     cl_abap_unit_assert=>assert_differs( act = customers[ 1 ]-CustomerId exp = customers[ 2 ]-CustomerId ).
+
+    ROLLBACK ENTITIES.
+
+  ENDMETHOD.
+
+  METHOD customerId_reassigned_on_conflict.
+
+    " 리뷰 지적 재현: draft A에 Prepare를 실행해 번호를 미리 부여한 뒤
+    " 활성화를 보류하고, 그 사이 고객사 B가 같은 번호로 먼저 활성화되면
+    " A를 최종 활성화(= 다시 SAVE determination 실행)할 때 재채번되어야 한다.
+    " (https://help.sap.com/docs/abap-cloud/abap-rap/preparing-draft-instances-for-activation
+    "  에 따르면 Prepare 단계에서도 on-save determination이 실행된다.)
+    " B의 활성화는 A와 다른 LUW에서 일어나므로, 여기서는 활성 테이블 더블에
+    " 직접 레코드를 넣어 "B가 이미 저장됨"을 모사한다.
+
+    " 1) draft A 생성 (아직 활성 테이블에는 없음).
+    MODIFY ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        CREATE FIELDS ( CustomerName CountryCode )
+        WITH VALUE #( ( %cid = 'A' CustomerName = '고객사 A' CountryCode = 'KR' ) )
+      MAPPED   DATA(mapped_a)
+      FAILED   DATA(failed_a)
+      REPORTED DATA(reported_a).
+
+    cl_abap_unit_assert=>assert_initial( failed_a-customer ).
+
+    DATA(tky_a) = mapped_a-customer[ 1 ]-%tky.
+
+    DATA keys_a TYPE TABLE FOR DETERMINE ON SAVE zr_ps_customer_yj\\Customer~setCustomerId.
+    keys_a = VALUE #( ( %tky = tky_a ) ).
+
+    " 2) Prepare 단계를 모사: determination을 직접 실행해 A에 번호를 미리
+    "    부여한다(활성 테이블이 비어 있으므로 'C000000001').
+    NEW lhc_customer( )->setCustomerId( keys = keys_a ).
+
+    READ ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        FIELDS ( CustomerId )
+        WITH VALUE #( ( %tky = tky_a ) )
+      RESULT DATA(customers_preview).
+
+    DATA(customer_id_preview) = customers_preview[ 1 ]-CustomerId.
+
+    cl_abap_unit_assert=>assert_equals( act = customer_id_preview exp = 'C000000001' ).
+
+    " 3) 고객사 B가 같은 번호로 먼저 활성화된 상태를 모사: 활성 테이블(CDS 더블,
+    "    enable_double_redirection으로 zps_customer_yj에 대한 일반 SELECT와도
+    "    공유된다)에 직접 충돌 레코드를 추가한다(A의 draft와는 별개로 이미
+    "    저장된 것으로 간주).
+    DATA lt_conflict TYPE STANDARD TABLE OF zr_ps_customer_yj.
+    lt_conflict = VALUE #( ( CustomerUuid = cl_system_uuid=>create_uuid_x16_static( )
+                              CustomerId   = customer_id_preview
+                              CustomerName = '고객사 B' ) ).
+    cds_test_environment->insert_test_data( i_data = lt_conflict ).
+
+    " 4) A를 최종 활성화하는 상황을 모사: determination을 다시 실행한다. 이제
+    "    활성 테이블에 다른 UUID가 같은 번호를 쓰고 있으므로 재채번되어야 한다
+    "    (수정 전에는 CustomerId가 이미 채워져 있어 재채번 로직을 건너뛰고
+    "    중복이 그대로 남았다).
+    NEW lhc_customer( )->setCustomerId( keys = keys_a ).
+
+    READ ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        FIELDS ( CustomerId )
+        WITH VALUE #( ( %tky = tky_a ) )
+      RESULT DATA(customers_final).
+
+    DATA(customer_id_final) = customers_final[ 1 ]-CustomerId.
+
+    cl_abap_unit_assert=>assert_not_initial( customer_id_final ).
+    cl_abap_unit_assert=>assert_differs( act = customer_id_final exp = customer_id_preview ).
 
     ROLLBACK ENTITIES.
 
