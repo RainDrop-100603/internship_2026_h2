@@ -514,7 +514,7 @@ CLASS ltc_customer IMPLEMENTATION.
 
     DATA(tky_a) = mapped_a-customer[ 1 ]-%tky.
 
-    DATA keys_a TYPE TABLE FOR DETERMINE ON SAVE zr_ps_customer_yj\\Customer~setCustomerId.
+    DATA keys_a TYPE TABLE FOR DETERMINATION zr_ps_customer_yj\\Customer~setCustomerId.
     keys_a = VALUE #( ( %tky = tky_a ) ).
 
     " 2) Prepare 단계를 모사: determination을 직접 실행해 A에 번호를 미리
@@ -535,10 +535,11 @@ CLASS ltc_customer IMPLEMENTATION.
     "    enable_double_redirection으로 zps_customer_yj에 대한 일반 SELECT와도
     "    공유된다)에 직접 충돌 레코드를 추가한다(A의 draft와는 별개로 이미
     "    저장된 것으로 간주).
-    DATA lt_conflict TYPE STANDARD TABLE OF zr_ps_customer_yj.
-    lt_conflict = VALUE #( ( CustomerUuid = cl_system_uuid=>create_uuid_x16_static( )
-                              CustomerId   = customer_id_preview
-                              CustomerName = '고객사 B' ) ).
+    DATA lt_conflict TYPE STANDARD TABLE OF zps_customer_yj.
+    lt_conflict = VALUE #( ( client        = sy-mandt
+                              customer_uuid = cl_system_uuid=>create_uuid_x16_static( )
+                              customer_id   = customer_id_preview
+                              customer_name = '고객사 B' ) ).
     cds_test_environment->insert_test_data( i_data = lt_conflict ).
 
     " 4) A를 최종 활성화하는 상황을 모사: determination을 다시 실행한다. 이제
