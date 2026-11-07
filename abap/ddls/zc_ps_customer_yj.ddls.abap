@@ -1,9 +1,9 @@
 @AccessControl.authorizationCheck: #CHECK
 @EndUserText.label: '고객사'
 @Metadata.allowExtensions: true
-define view entity ZC_PS_CUSTOMER_YJ
-  as projection on ZR_PS_CUSTOMER_YJ
+define root view entity ZC_PS_CUSTOMER_YJ
   provider contract transactional_query
+  as projection on ZR_PS_CUSTOMER_YJ
 {
   key CustomerUuid,
       CustomerId,

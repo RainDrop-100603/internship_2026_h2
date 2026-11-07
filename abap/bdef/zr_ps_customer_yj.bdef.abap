@@ -1,5 +1,6 @@
 managed implementation in class zbp_r_ps_customer_yj unique;
 strict ( 2 );
+with draft;
 
 define behavior for ZR_PS_CUSTOMER_YJ alias Customer
 persistent table zps_customer_yj
@@ -7,7 +8,6 @@ draft table zps_cust_d_yj
 etag master LocalLastChangedAt
 lock master total etag LastChangedAt
 authorization master ( global )
-with draft
 
 {
   field ( numbering : managed, readonly ) CustomerUuid;
