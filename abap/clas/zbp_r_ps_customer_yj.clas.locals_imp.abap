@@ -73,7 +73,11 @@ CLASS lhc_customer IMPLEMENTATION.
             CONTINUE.
         ENDTRY.
 
-        DATA(lv_customer_id) = |C{ lv_next_nr+0(9) }|.
+        " NUMBER_GET은 번호를 20자리 숫자 텍스트로 반환하며 실제 값은 앞쪽에 0이
+        " 채워진 상태로 들어있다(예: 9자리 범위라도 20자리 중 뒤쪽 9자리가 실값).
+        " NUMC 간 대입은 자릿수가 달라도 수치로 변환되므로, NUMC9로 변환해
+        " 실제 번호(뒤쪽 9자리)만 정확히 취득한다.
+        DATA(lv_customer_id) = |C{ CONV numc9( lv_next_nr ) }|.
 
         MODIFY ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
           ENTITY Customer
@@ -219,7 +223,8 @@ CLASS ltc_customer DEFINITION FOR TESTING
       validateCountry_unknown_fails  FOR TESTING RAISING cx_static_check,
       validateCountry_known_succeeds FOR TESTING RAISING cx_static_check,
       validateCountry_empty_succeeds FOR TESTING RAISING cx_static_check,
-      customerId_assigned_on_save    FOR TESTING RAISING cx_static_check.
+      customerId_assigned_on_save    FOR TESTING RAISING cx_static_check,
+      customerId_format_and_unique   FOR TESTING RAISING cx_static_check.
 
 ENDCLASS.
 
@@ -405,6 +410,47 @@ CLASS ltc_customer IMPLEMENTATION.
 
     cl_abap_unit_assert=>assert_not_initial( customers ).
     cl_abap_unit_assert=>assert_not_initial( customers[ 1 ]-CustomerId ).
+
+    ROLLBACK ENTITIES.
+
+  ENDMETHOD.
+
+  METHOD customerId_format_and_unique.
+
+    " 연속으로 생성한 두 고객사의 CustomerId가 'C' + 9자리 숫자 형식이고,
+    " 서로 다른 값으로 채번되는지 검증한다(C000000000 중복 회귀 방지).
+    MODIFY ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        CREATE FIELDS ( CustomerName CountryCode )
+        WITH VALUE #( ( %cid = 'C1' CustomerName = '테스트 고객사 1' CountryCode = 'KR' )
+                       ( %cid = 'C2' CustomerName = '테스트 고객사 2' CountryCode = 'KR' ) )
+      MAPPED   DATA(mapped)
+      FAILED   DATA(failed)
+      REPORTED DATA(reported).
+
+    COMMIT ENTITIES
+      RESPONSE OF zr_ps_customer_yj
+      FAILED   DATA(failed_save)
+      REPORTED DATA(reported_save).
+
+    cl_abap_unit_assert=>assert_initial( failed_save-customer ).
+
+    READ ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        FIELDS ( CustomerId )
+        WITH CORRESPONDING #( mapped-customer )
+      RESULT DATA(customers).
+
+    cl_abap_unit_assert=>assert_equals( act = lines( customers ) exp = 2 ).
+
+    LOOP AT customers INTO DATA(customer).
+      cl_abap_unit_assert=>assert_equals( act = strlen( customer-CustomerId ) exp = 10 ).
+      cl_abap_unit_assert=>assert_char_cp( act = customer-CustomerId exp = 'C*' ).
+      cl_abap_unit_assert=>assert_true( xsdbool( customer-CustomerId+1(9) CO '0123456789' ) ).
+      cl_abap_unit_assert=>assert_differs( act = customer-CustomerId exp = 'C000000000' ).
+    ENDLOOP.
+
+    cl_abap_unit_assert=>assert_differs( act = customers[ 1 ]-CustomerId exp = customers[ 2 ]-CustomerId ).
 
     ROLLBACK ENTITIES.
 

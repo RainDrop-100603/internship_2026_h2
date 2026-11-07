@@ -27,7 +27,7 @@ authorization master ( global )
   draft action Activate optimized;
   draft action Discard;
   draft action Resume;
-  draft determine action Prepare { validation validateName; validation validateCountry; validation validateCustomerId; }
+  draft determine action Prepare { determination setCustomerId; validation validateName; validation validateCountry; validation validateCustomerId; }
 
   mapping for zps_customer_yj corresponding
   {
