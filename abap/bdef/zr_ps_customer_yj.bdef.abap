@@ -21,12 +21,13 @@ authorization master ( global )
 
   validation validateName on save { create; field CustomerName; }
   validation validateCountry on save { create; field CountryCode; }
+  validation validateCustomerId on save { create; field CustomerId; }
 
   draft action Edit;
   draft action Activate optimized;
   draft action Discard;
   draft action Resume;
-  draft determine action Prepare { validation validateName; validation validateCountry; }
+  draft determine action Prepare { validation validateName; validation validateCountry; validation validateCustomerId; }
 
   mapping for zps_customer_yj corresponding
   {

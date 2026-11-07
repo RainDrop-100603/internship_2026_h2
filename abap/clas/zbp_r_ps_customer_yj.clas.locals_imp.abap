@@ -16,6 +16,9 @@ CLASS lhc_customer DEFINITION INHERITING FROM cl_abap_behavior_handler.
     METHODS validateCountry FOR VALIDATE ON SAVE
       IMPORTING keys FOR Customer~validateCountry.
 
+    METHODS validateCustomerId FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Customer~validateCustomerId.
+
 ENDCLASS.
 
 CLASS lhc_customer IMPLEMENTATION.
@@ -58,10 +61,15 @@ CLASS lhc_customer IMPLEMENTATION.
       LOOP AT customers INTO DATA(customer) WHERE CustomerId IS INITIAL.
 
         TRY.
-            DATA(lv_next_nr) = cl_numberrange_runtime=>number_get_next(
-                                    nr_range_nr = '01'
-                                    object      = 'ZCUSTNR_YJ' ).
+            cl_numberrange_runtime=>number_get(
+              EXPORTING
+                nr_range_nr = '01'
+                object      = 'ZCUSTNR_YJ'
+              IMPORTING
+                number      = DATA(lv_next_nr) ).
           CATCH cx_number_ranges.
+            " 채번 실패(번호 범위 미설정/소진 등) 시 CustomerId를 비워 둔 채 넘긴다.
+            " validateCustomerId가 저장 단계에서 이를 잡아 저장을 막는다.
             CONTINUE.
         ENDTRY.
 
@@ -153,6 +161,39 @@ CLASS lhc_customer IMPLEMENTATION.
 
   ENDMETHOD.
 
+  METHOD validateCustomerId.
+
+    " setCustomerId 채번이 실패(번호 범위 미설정/소진 등)하면 CustomerId가 빈 상태로
+    " 남는다. CustomerId는 readonly라 사용자가 직접 보완할 수 없으므로, 이 상태로는
+    " 저장이 끝나지 않도록 여기서 막는다.
+    READ ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        FIELDS ( CustomerId )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(customers).
+
+    LOOP AT customers INTO DATA(customer).
+
+      APPEND VALUE #( %tky = customer-%tky %state_area = 'VALIDATE_CUSTOMER_ID' ) TO reported-customer.
+
+      IF customer-CustomerId IS INITIAL.
+
+        APPEND VALUE #( %tky = customer-%tky ) TO failed-customer.
+
+        APPEND VALUE #( %tky                 = customer-%tky
+                         %state_area          = 'VALIDATE_CUSTOMER_ID'
+                         %msg                 = new_message_with_text(
+                                                     severity = if_abap_behv_message=>severity-error
+                                                     text     = '번호 범위 채번에 실패하여 저장할 수 없습니다. 번호 범위 설정을 확인해주세요.' )
+                         %element-CustomerId  = if_abap_behv=>mk-on )
+               TO reported-customer.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
 ENDCLASS.
 
 
@@ -177,7 +218,8 @@ CLASS ltc_customer DEFINITION FOR TESTING
       validateName_filled_succeeds  FOR TESTING RAISING cx_static_check,
       validateCountry_unknown_fails  FOR TESTING RAISING cx_static_check,
       validateCountry_known_succeeds FOR TESTING RAISING cx_static_check,
-      validateCountry_empty_succeeds FOR TESTING RAISING cx_static_check.
+      validateCountry_empty_succeeds FOR TESTING RAISING cx_static_check,
+      customerId_assigned_on_save    FOR TESTING RAISING cx_static_check.
 
 ENDCLASS.
 
@@ -329,6 +371,40 @@ CLASS ltc_customer IMPLEMENTATION.
     cl_abap_unit_assert=>assert_false(
       xsdbool( line_exists( reported_save-customer[ %state_area = 'VALIDATE_COUNTRY'
                                                       %element-CountryCode = if_abap_behv=>mk-on ] ) ) ).
+
+    ROLLBACK ENTITIES.
+
+  ENDMETHOD.
+
+  METHOD customerId_assigned_on_save.
+
+    " setCustomerId(번호 범위 채번)가 정상 동작하고, validateCustomerId가 채번된
+    " 결과를 막지 않는지 함께 검증한다. 번호 범위 채번이 실패하면 save 자체가
+    " failed_save-customer로 막히므로(validateCustomerId), 이 테스트가 통과하면
+    " 두 로직이 함께 정상 동작함을 보장한다.
+    MODIFY ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        CREATE FIELDS ( CustomerName CountryCode )
+        WITH VALUE #( ( %cid = 'C1' CustomerName = '테스트 고객사' CountryCode = 'KR' ) )
+      MAPPED   DATA(mapped)
+      FAILED   DATA(failed)
+      REPORTED DATA(reported).
+
+    COMMIT ENTITIES
+      RESPONSE OF zr_ps_customer_yj
+      FAILED   DATA(failed_save)
+      REPORTED DATA(reported_save).
+
+    cl_abap_unit_assert=>assert_initial( failed_save-customer ).
+
+    READ ENTITIES OF zr_ps_customer_yj IN LOCAL MODE
+      ENTITY Customer
+        FIELDS ( CustomerId )
+        WITH CORRESPONDING #( mapped-customer )
+      RESULT DATA(customers).
+
+    cl_abap_unit_assert=>assert_not_initial( customers ).
+    cl_abap_unit_assert=>assert_not_initial( customers[ 1 ]-CustomerId ).
 
     ROLLBACK ENTITIES.
 
