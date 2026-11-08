@@ -180,6 +180,7 @@ Mini PS Mock-up 2단계: 고객사(Customer) 기준정보 RAP BO를 테이블부
 
 ```text
 Mini PS Mock-up 2-B단계: 사원(Employee) 기준정보 RAP BO를 만들어줘.
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 2단계 고객사 BO(abap/ 아래 zps_customer_yj, zps_cust_d_yj, zr_ps_customer_yj, zc_ps_customer_yj,
 zbp_r_ps_customer_yj, zui_ps_customer_yj 파일)와 완전히 같은 구조·주석·draft 설정으로 만든다. 고객사 파일은 수정하지 않는다.
 설계 기준: working/mini-ps-mockup.md "Employee Master", working/program_specs.md 3.6절(EMP-01), BR-16·BR-17.
@@ -212,6 +213,7 @@ zbp_r_ps_customer_yj, zui_ps_customer_yj 파일)와 완전히 같은 구조·주
 
 ```text
 Mini PS Mock-up 2-C단계: 자재(Material) 기준정보 RAP BO를 만들어줘.
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 2단계 고객사 BO와 완전히 같은 구조·주석·draft 설정으로 만든다. 기존 파일은 수정하지 않는다.
 설계 기준: working/mini-ps-mockup.md "Material Master", working/program_specs.md 3.6절(MAT-01), BR-16·BR-17.
 
@@ -236,6 +238,7 @@ Mini PS Mock-up 2-C단계: 자재(Material) 기준정보 RAP BO를 만들어줘.
 
 ```text
 Mini PS Mock-up 2-D단계: 작업장(Work Center) 기준정보 RAP BO를 만들어줘.
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 2단계 고객사 BO와 완전히 같은 구조·주석·draft 설정으로 만든다. 기존 파일은 수정하지 않는다.
 설계 기준: working/mini-ps-mockup.md "Work Center Master", working/program_specs.md 3.6절(WC-01), BR-16·BR-17.
 
@@ -266,6 +269,7 @@ WBS·Activity는 4·5단계에서 **이 BO의 하위 엔터티로 추가**한다
 
 ```text
 Mini PS Mock-up 3단계: 프로젝트(Project) RAP BO의 루트 엔터티를 만들어줘. (WBS·Activity는 다음 단계에서 이 BO에 추가한다)
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 2단계 고객사 BO의 구조·주석·draft 패턴을 따른다. 기존 파일은 수정하지 않는다.
 설계 기준: working/mini-ps-mockup.md "Project 속성정보", working/program_specs.md 3.1~3.3절(PRJ-01·02·03),
 BR-02·BR-09·BR-14·BR-15·BR-16. 1차 MVP는 WBS 템플릿과 상태 변경(Release/TECO/종료)을 만들지 않는다.
@@ -327,6 +331,7 @@ BR-02·BR-09·BR-14·BR-15·BR-16. 1차 MVP는 WBS 템플릿과 상태 변경(Re
 
 ```text
 Mini PS Mock-up 4단계: 프로젝트 BO(ZR_PS_PROJECT_YJ)에 WBS 하위 엔터티를 추가해줘.
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 설계 기준: working/program_specs.md 3.4절(WBS-01), working/process_flows.md PS-03, BR-02·BR-09·BR-12.
 기존 프로젝트 BO 파일(테이블·CDS·BDEF·Behavior Pool·DDLX·SRVD)을 수정해 composition으로 붙인다. 상태 변경(Release/TECO) 액션은 만들지 않는다.
 
@@ -390,6 +395,7 @@ Mini PS Mock-up 4단계: 프로젝트 BO(ZR_PS_PROJECT_YJ)에 WBS 하위 엔터�
 
 ```text
 Mini PS Mock-up 5단계: 프로젝트 BO의 WBS 아래에 Activity 엔터티를 추가해줘.
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 설계 기준: working/program_specs.md 3.5절(ACT-01), working/process_flows.md PS-04, BR-02·BR-09·BR-10·BR-15·BR-16.
 기존 프로젝트 BO 파일을 수정해 WBS의 composition 하위로 붙인다. 착수·보류·재개·완료 액션은 만들지 않는다.
 
@@ -450,6 +456,7 @@ Mini PS Mock-up 5단계: 프로젝트 BO의 WBS 아래에 Activity 엔터티를 
 
 ```text
 Mini PS Mock-up 6단계: 1차 MVP 시나리오 테스트용 데이터 적재 클래스를 만들어줘.
+공통 규칙: 먼저 4_MiniPS_MVP/prompts.md의 "공통 규칙" 표를 읽고 그대로 따른다 (필드 라벨, 접두어별 채번, internal delete, 권한 핸들러, 번호 범위 객체 금지 등).
 기준: working/test_scenarios.md의 TS-01·02·04~11, 4_MiniPS_MVP/README.md 3.3절. 업무 BO 파일은 수정하지 않는다.
 
 - ZCL_PS_SEED_TESTDATA_YJ (if_oo_adt_classrun): 여러 번 실행해도 결과가 같도록 'T'로 시작하는 테스트 데이터만 지우고 다시 넣는다.
