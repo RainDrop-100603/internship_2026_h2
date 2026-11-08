@@ -1,0 +1,5 @@
+CLASS zbp_r_ps_employee_yj DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zr_ps_employee_yj.
+ENDCLASS.
+
+CLASS zbp_r_ps_employee_yj IMPLEMENTATION.
+ENDCLASS.
