@@ -39,6 +39,7 @@
 | 채번 구현 | `SELECT MAX`로 같은 접두어 최대값 + 1, `|C{ n WIDTH = 9 ALIGN = RIGHT PAD = '0' }|` 형식. **번호 범위 객체(`cl_numberrange_runtime`) 금지** — 서버에 없고 콘솔 파일로 만들 수 없음. 동시 생성 중복은 Mock-up 범위에서 허용 (2단계에서 실제로 문제 발생) |
 | draft BO | 루트·하위 엔터티 모두 `internal delete;`를 넣는다 (draft 엔터티는 delete가 최소 internal로 필요 — 활성화 경고). 프로젝션에는 `use delete`를 넣지 않아 화면에 삭제 버튼이 생기지 않게 한다 |
 | 권한 핸들러 | `get_global_authorizations`의 result에는 BDEF에 사용자 operation으로 정의된 것(create, update, Edit 등)만 쓴다 (`%delete` 대입 금지 — 2단계 문법 오류) |
+| 필드 라벨 | 테이블이 데이터 엘리먼트 없이 내장 타입이라 라벨이 없다. **화면에 보이는 모든 필드는 DDLX에 `@EndUserText.label`(한글)을 단다** (빠뜨리면 Fiori 입력 칸에 이름이 안 보임 — 2단계에서 실제 발생). 코드 필드는 이름이 보이도록 `@ObjectModel.text.element` + `@UI.textArrangement: #TEXT_FIRST`를 권장 |
 | 승인 전 점검 | Codex 리뷰는 서버 문법 검사를 하지 않는다. 존재하지 않는 타입(예: `NUMC9`) 등은 승인 시에야 드러나므로 diff에서 직접 한 번 더 본다 |
 
 ---
