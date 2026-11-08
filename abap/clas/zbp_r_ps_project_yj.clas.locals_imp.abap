@@ -619,6 +619,7 @@ CLASS lhc_wbs IMPLEMENTATION.
     " BR-12: 활성 데이터가 이미 있는 WBS는 부모를 바꿀 수 없다.
     DATA wbs_uuids    TYPE SORTED TABLE OF zps_wbs_yj-wbs_uuid WITH UNIQUE KEY table_line.
     DATA active_uuids TYPE SORTED TABLE OF zps_wbs_yj-wbs_uuid WITH NON-UNIQUE KEY table_line.
+    DATA visited      TYPE SORTED TABLE OF zps_wbs_yj-wbs_id WITH UNIQUE KEY table_line.
 
     LOOP AT wbs_list INTO DATA(ls_key).
       INSERT ls_key-%tky-WbsUuid INTO TABLE wbs_uuids.
@@ -646,11 +647,15 @@ CLASS lhc_wbs IMPLEMENTATION.
         lv_locked = abap_true.
       ENDIF.
 
-      " 상위 WBS 체인
+      " 상위 WBS 체인을 루트까지 따라간다.
+      " 깊이 제한 대신 방문한 WbsId 집합으로 순환을 감지한다 (데이터 오류로 무한 루프 방지).
+      CLEAR visited.
       DATA(lv_node) = wbs-ParentWbsId.
-      DATA(lv_steps) = 0.
-      WHILE lv_node IS NOT INITIAL AND lv_steps < 50.
-        lv_steps = lv_steps + 1.
+      WHILE lv_node IS NOT INITIAL.
+        IF line_exists( visited[ table_line = lv_node ] ).
+          EXIT.
+        ENDIF.
+        INSERT lv_node INTO TABLE visited.
         READ TABLE all_wbs INTO DATA(ls_anc)
              WITH KEY ProjectUuid = wbs-ProjectUuid
                       WbsId       = lv_node.
@@ -825,7 +830,7 @@ CLASS lhc_wbs IMPLEMENTATION.
 
     READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
       ENTITY Wbs
-        FIELDS ( WbsName )
+        FIELDS ( ProjectUuid WbsName )
         WITH CORRESPONDING #( keys )
       RESULT DATA(wbs_list).
 
@@ -837,7 +842,11 @@ CLASS lhc_wbs IMPLEMENTATION.
 
         APPEND VALUE #( %tky = wbs-%tky ) TO failed-wbs.
 
+        " 자식 엔터티 메시지는 부모 프로젝트를 가리키는 %path가 있어야 UI에 표시된다.
         APPEND VALUE #( %tky             = wbs-%tky
+                         %path            = VALUE #( Project-%tky = VALUE #(
+                                                 ProjectUuid = wbs-ProjectUuid
+                                                 %is_draft   = wbs-%tky-%is_draft ) )
                          %state_area      = 'VALIDATE_WBS_NAME'
                          %msg             = new_message_with_text(
                                                  severity = if_abap_behv_message=>severity-error
@@ -877,6 +886,8 @@ CLASS lhc_wbs IMPLEMENTATION.
         WITH CORRESPONDING #( projects )
       RESULT DATA(all_wbs).
 
+    DATA visited TYPE SORTED TABLE OF zps_wbs_yj-wbs_id WITH UNIQUE KEY table_line.
+
     LOOP AT wbs_list INTO DATA(wbs).
 
       APPEND VALUE #( %tky = wbs-%tky %state_area = 'VALIDATE_PARENT' ) TO reported-wbs.
@@ -896,6 +907,9 @@ CLASS lhc_wbs IMPLEMENTATION.
         APPEND VALUE #( %tky = wbs-%tky ) TO failed-wbs.
 
         APPEND VALUE #( %tky                 = wbs-%tky
+                         %path                = VALUE #( Project-%tky = VALUE #(
+                                                     ProjectUuid = wbs-ProjectUuid
+                                                     %is_draft   = wbs-%tky-%is_draft ) )
                          %state_area          = 'VALIDATE_PARENT'
                          %msg                 = new_message_with_text(
                                                      severity = if_abap_behv_message=>severity-error
@@ -915,10 +929,15 @@ CLASS lhc_wbs IMPLEMENTATION.
         IF wbs-ParentWbsId = wbs-WbsId.
           lv_cycle = abap_true.
         ELSE.
+          " 부모 체인을 루트까지 따라간다. 방문한 WbsId 집합으로
+          " 기존 데이터의 순환을 감지해 무한 루프를 막는다.
+          CLEAR visited.
           DATA(lv_node) = wbs-ParentWbsId.
-          DATA(lv_steps) = 0.
-          WHILE lv_node IS NOT INITIAL AND lv_steps < 50.
-            lv_steps = lv_steps + 1.
+          WHILE lv_node IS NOT INITIAL.
+            IF line_exists( visited[ table_line = lv_node ] ).
+              EXIT.
+            ENDIF.
+            INSERT lv_node INTO TABLE visited.
             READ TABLE all_wbs INTO DATA(ls_anc)
                  WITH KEY ProjectUuid = wbs-ProjectUuid
                           WbsId       = lv_node.
@@ -941,6 +960,9 @@ CLASS lhc_wbs IMPLEMENTATION.
         APPEND VALUE #( %tky = wbs-%tky ) TO failed-wbs.
 
         APPEND VALUE #( %tky                 = wbs-%tky
+                         %path                = VALUE #( Project-%tky = VALUE #(
+                                                     ProjectUuid = wbs-ProjectUuid
+                                                     %is_draft   = wbs-%tky-%is_draft ) )
                          %state_area          = 'VALIDATE_PARENT'
                          %msg                 = new_message_with_text(
                                                      severity = if_abap_behv_message=>severity-error
@@ -982,6 +1004,7 @@ CLASS lhc_wbs IMPLEMENTATION.
 
     DATA wbs_uuids    TYPE SORTED TABLE OF zps_wbs_yj-wbs_uuid WITH UNIQUE KEY table_line.
     DATA active_uuids TYPE SORTED TABLE OF zps_wbs_yj-wbs_uuid WITH NON-UNIQUE KEY table_line.
+    DATA visited      TYPE SORTED TABLE OF zps_wbs_yj-wbs_id WITH UNIQUE KEY table_line.
 
     LOOP AT wbs_list INTO DATA(ls_key).
       INSERT ls_key-%tky-WbsUuid INTO TABLE wbs_uuids.
@@ -1014,10 +1037,15 @@ CLASS lhc_wbs IMPLEMENTATION.
       ENDIF.
 
       " 부모를 따라 루트까지 올라가며 상위 WBS 상태를 확인한다.
+      " 깊이 제한을 두면 더 위의 TECO·CLSD를 놓치므로(BR-09 위반),
+      " 방문한 WbsId 집합으로 순환만 감지하고 루트까지 모두 검사한다.
+      CLEAR visited.
       DATA(lv_node) = wbs-ParentWbsId.
-      DATA(lv_steps) = 0.
-      WHILE lv_node IS NOT INITIAL AND lv_steps < 50.
-        lv_steps = lv_steps + 1.
+      WHILE lv_node IS NOT INITIAL.
+        IF line_exists( visited[ table_line = lv_node ] ).
+          EXIT.
+        ENDIF.
+        INSERT lv_node INTO TABLE visited.
         READ TABLE all_wbs INTO DATA(ls_anc)
              WITH KEY ProjectUuid = wbs-ProjectUuid
                       WbsId       = lv_node.
@@ -1036,6 +1064,9 @@ CLASS lhc_wbs IMPLEMENTATION.
         APPEND VALUE #( %tky = wbs-%tky ) TO failed-wbs.
 
         APPEND VALUE #( %tky        = wbs-%tky
+                         %path       = VALUE #( Project-%tky = VALUE #(
+                                            ProjectUuid = wbs-ProjectUuid
+                                            %is_draft   = wbs-%tky-%is_draft ) )
                          %state_area = 'VALIDATE_WBS_SCOPE'
                          %msg        = new_message_with_text(
                                             severity = if_abap_behv_message=>severity-error
