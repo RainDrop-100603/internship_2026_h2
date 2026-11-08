@@ -13,9 +13,11 @@ authorization master ( global )
   field ( numbering : managed, readonly ) ProjectUuid;
   field ( readonly ) ProjectId, Status, CreatedBy, CreatedAt, LastChangedBy, LocalLastChangedAt, LastChangedAt;
 
-  // 프로파일·선박 타입은 생성 후 수정 불가 (PRJ-03)
-  field ( mandatory : create, readonly : update ) ProfileCode;
-  field ( readonly : update ) VesselType;
+  // 프로파일·선박 타입은 생성 후 수정 불가 (PRJ-03).
+  // draft 시나리오에서는 생성 직후 입력도 UPDATE로 전달되므로 정적 readonly:update를 쓰면
+  // 신규 draft에서도 입력이 막힌다. 활성 데이터 유무로 판단하는 동적 필드 제어를 사용한다.
+  field ( mandatory : create, features : instance ) ProfileCode;
+  field ( features : instance ) VesselType;
 
   field ( mandatory ) ProjectName, PmEmployeeId, CustomerId, StartDate, EndDate;
 

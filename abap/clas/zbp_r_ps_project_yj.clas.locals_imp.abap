@@ -64,15 +64,39 @@ CLASS lhc_project IMPLEMENTATION.
         WITH CORRESPONDING #( keys )
       RESULT DATA(projects).
 
+    " PRJ-03: 프로파일·선박 타입은 생성 후 수정 불가.
+    " draft 시나리오에서는 생성 직후 필드 입력도 UPDATE로 전달되므로,
+    " 아직 활성 데이터가 없는 신규 draft에서는 입력을 허용하고
+    " 활성화된 프로젝트(활성 테이블에 행이 있는 경우)에서만 읽기 전용으로 만든다.
+    DATA uuids        TYPE SORTED TABLE OF zps_project_yj-project_uuid WITH UNIQUE KEY table_line.
+    DATA active_uuids TYPE SORTED TABLE OF zps_project_yj-project_uuid WITH NON-UNIQUE KEY table_line.
+
+    LOOP AT projects INTO DATA(ls_key).
+      INSERT ls_key-%tky-ProjectUuid INTO TABLE uuids.
+    ENDLOOP.
+
+    IF uuids IS NOT INITIAL.
+      SELECT project_uuid FROM zps_project_yj
+        FOR ALL ENTRIES IN @uuids
+        WHERE project_uuid = @uuids-table_line
+        INTO TABLE @active_uuids.
+    ENDIF.
+
     LOOP AT projects INTO DATA(project).
 
       DATA(lv_feature) = COND #( WHEN project-Status = 'TECO' OR project-Status = 'CLSD'
                                   THEN if_abap_behv=>fc-o-disabled
                                   ELSE if_abap_behv=>fc-o-enabled ).
 
-      APPEND VALUE #( %tky         = project-%tky
-                       %update      = lv_feature
-                       %action-Edit = lv_feature )
+      DATA(lv_create_only) = COND #( WHEN line_exists( active_uuids[ table_line = project-%tky-ProjectUuid ] )
+                                      THEN if_abap_behv=>fc-f-read-only
+                                      ELSE if_abap_behv=>fc-f-unrestricted ).
+
+      APPEND VALUE #( %tky               = project-%tky
+                       %update            = lv_feature
+                       %action-Edit       = lv_feature
+                       %field-ProfileCode = lv_create_only
+                       %field-VesselType  = lv_create_only )
              TO result.
 
     ENDLOOP.
