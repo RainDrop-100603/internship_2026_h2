@@ -24,8 +24,15 @@ annotate entity ZC_PS_PROJECT_YJ with
       label: '상태',
       position: 20,
       targetQualifier: 'StatusGroup'
+    },
+    {
+      id: 'Wbs',
+      purpose: #STANDARD,
+      type: #LINEITEM_REFERENCE,
+      label: 'WBS',
+      position: 30,
+      targetElement: '_Wbs'
     }
-    // position 30: 다음 단계에서 WBS facet(#LINEITEM_REFERENCE, '_Wbs')을 추가할 자리
   ]
 
   @UI.hidden: true

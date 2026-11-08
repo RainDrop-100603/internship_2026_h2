@@ -2,6 +2,7 @@
 @EndUserText.label: '프로젝트'
 define root view entity ZR_PS_PROJECT_YJ
   as select from zps_project_yj
+  composition [0..*] of ZR_PS_WBS_YJ         as _Wbs
   association [0..1] to ZI_PS_PRJPROF_VH_YJ  as _Profile    on $projection.ProfileCode  = _Profile.ProfileCode
   association [0..1] to ZI_PS_VSLTYPE_VH_YJ  as _VesselType on $projection.VesselType   = _VesselType.Code
   association [0..1] to ZI_PS_EMPLOYEE_VH_YJ as _Pm         on $projection.PmEmployeeId = _Pm.EmployeeId
@@ -35,7 +36,8 @@ define root view entity ZR_PS_PROJECT_YJ
       @Semantics.systemDateTime.lastChangedAt: true
       last_changed_at                 as LastChangedAt,
 
-      // Associations
+      // Compositions / Associations
+      _Wbs,
       _Profile,
       _VesselType,
       _Pm,

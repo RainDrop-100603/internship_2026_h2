@@ -25,6 +25,10 @@ authorization master ( global )
   update ( features : instance );
   internal delete;
 
+  // WBS는 프로젝트와 같은 draft·lock 단위로 묶인다. TECO·CLSD 프로젝트에서는
+  // 하위 WBS 등록을 막으므로 create를 인스턴스 기능 제어로 둔다 (BR-09).
+  association _Wbs { create ( features : instance ); with draft; }
+
   // 프로파일의 Initial Status로 상태 설정 (BR-02)
   determination setInitialStatus on modify { create; }
   // 'PRJ' + 7자리 채번 (BR-17)
@@ -47,7 +51,10 @@ authorization master ( global )
                                    validation validateVesselType;
                                    validation validatePm;
                                    validation validateCustomer;
-                                   validation validateDates; }
+                                   validation validateDates;
+                                   validation Wbs~validateWbsName;
+                                   validation Wbs~validateParent;
+                                   validation Wbs~validateWbsScope; }
 
   mapping for zps_project_yj corresponding
   {
@@ -67,5 +74,51 @@ authorization master ( global )
     LastChangedBy        = last_changed_by;
     LocalLastChangedAt   = local_last_changed_at;
     LastChangedAt        = last_changed_at;
+  }
+}
+
+define behavior for ZR_PS_WBS_YJ alias Wbs
+persistent table zps_wbs_yj
+draft table zps_wbs_d_yj
+etag master LocalLastChangedAt
+lock dependent by _Project
+authorization dependent by _Project
+
+{
+  field ( numbering : managed, readonly ) WbsUuid;
+  field ( readonly ) ProjectUuid, WbsId, WbsLevel, Status, LocalLastChangedAt;
+
+  // BR-12: 부모 WBS는 등록할 때만 정하고 이후에는 변경할 수 없다 (TS-08).
+  // draft 시나리오에서는 생성 직후 입력도 UPDATE로 전달되므로 정적 readonly:update를 쓰면
+  // 신규 draft에서 부모를 아예 지정할 수 없다. 활성 데이터 유무로 판단하는 동적 필드 제어를 쓴다
+  // (3단계 프로젝트 ProfileCode와 같은 패턴).
+  field ( features : instance ) ParentWbsId;
+
+  field ( mandatory ) WbsName;
+
+  update ( features : instance );
+  internal delete;
+
+  association _Project { with draft; }
+
+  // BR-02: 상태는 CRTD로, BR-12: Level은 부모 Level + 1로 자동 설정
+  determination setWbsDefaults on modify { create; field ParentWbsId; }
+  // 'WBS' + 7자리 채번 (BR-17)
+  determination setWbsId on save { create; }
+
+  validation validateWbsName on save { create; update; field WbsName; }
+  validation validateParent on save { create; field ParentWbsId; }
+  validation validateWbsScope on save { create; update; }
+
+  mapping for zps_wbs_yj corresponding
+  {
+    WbsUuid            = wbs_uuid;
+    ProjectUuid        = project_uuid;
+    WbsId              = wbs_id;
+    WbsName            = wbs_name;
+    ParentWbsId        = parent_wbs_id;
+    WbsLevel           = wbs_level;
+    Status             = status;
+    LocalLastChangedAt = local_last_changed_at;
   }
 }

@@ -55,7 +55,8 @@ define root view entity ZC_PS_PROJECT_YJ
       LocalLastChangedAt,
       LastChangedAt,
 
-      // Associations
+      // Compositions / Associations
+      _Wbs : redirected to composition child ZC_PS_WBS_YJ,
       _Profile,
       _VesselType,
       _Pm,
