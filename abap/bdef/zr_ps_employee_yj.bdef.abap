@@ -23,12 +23,13 @@ authorization master ( global )
   validation validateName on save { create; field EmployeeName; }
   validation validateDepartment on save { create; field DepartmentCode; }
   validation validatePosition on save { create; field PositionCode; }
+  validation validateEmployeeId on save { create; field EmployeeId; }
 
   draft action Edit;
   draft action Activate optimized;
   draft action Discard;
   draft action Resume;
-  draft determine action Prepare { determination setEmployeeId; validation validateName; validation validateDepartment; validation validatePosition; }
+  draft determine action Prepare { determination setEmployeeId; validation validateName; validation validateDepartment; validation validatePosition; validation validateEmployeeId; }
 
   mapping for zps_employee_yj corresponding
   {
