@@ -89,7 +89,7 @@ CLASS lhc_project IMPLEMENTATION.
                                   ELSE if_abap_behv=>fc-o-enabled ).
 
       DATA(lv_create_only) = COND #( WHEN line_exists( active_uuids[ table_line = project-%tky-ProjectUuid ] )
-                                      THEN if_abap_behv=>fc-f-read-only
+                                      THEN if_abap_behv=>fc-f-read_only
                                       ELSE if_abap_behv=>fc-f-unrestricted ).
 
       APPEND VALUE #( %tky               = project-%tky
