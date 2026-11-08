@@ -26,10 +26,10 @@ authorization master ( global )
   validation validateEmployeeId on save { create; field EmployeeId; }
 
   draft action Edit;
-  " Activate optimized를 쓰지 않는다: optimized는 Prepare 이후 draft가 바뀌지 않았으면
-  " Activate 시점에 determination/validation 재실행을 건너뛸 수 있어, setEmployeeId의
-  " 충돌 재채번 로직(다른 사원이 그 사이 같은 ID로 먼저 저장되는 경우)이 생략될 수 있다.
-  " 일반 Activate로 지정해 Activate 시점에도 save 시퀀스가 항상 실행되게 한다.
+  // Activate optimized를 쓰지 않는다: optimized는 Prepare 이후 draft가 바뀌지 않았으면
+  // Activate 시점에 determination/validation 재실행을 건너뛸 수 있어, setEmployeeId의
+  // 충돌 재채번 로직(다른 사원이 그 사이 같은 ID로 먼저 저장되는 경우)이 생략될 수 있다.
+  // 일반 Activate로 지정해 Activate 시점에도 save 시퀀스가 항상 실행되게 한다.
   draft action Activate;
   draft action Discard;
   draft action Resume;
