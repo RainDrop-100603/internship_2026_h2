@@ -835,6 +835,9 @@ function abapPreamble() {
       " 테스트가 명시된 경우에만 별도 파일 없이 클래스 소스 안에 로컬 테스트 클래스(CLASS ltcl_... DEFINITION FOR TESTING)로 작성하라.",
     "ABAP 식별자(메서드·변수·클래스 이름)는 30자를 넘지 않게 하고, 존재하지 않는 타입(예: NUMC9)을 만들어 쓰지 말고" +
       " 내장 타입(TYPE n LENGTH 9 등)이나 테이블 필드 타입을 써라.",
+    "주석 문법은 파일 종류마다 다르다: 클래스·인터페이스(.clas.abap, .intf.abap)는 \" 또는 줄 맨 앞 *," +
+      " BDEF·CDS·Metadata Extension·Service Definition(.bdef/.ddls/.ddlx/.srvd)은 // 또는 /* */ 만 쓴다." +
+      " BDEF 등에 \" 주석을 쓰면 활성화가 실패한다.",
     "이 폴더 밖의 파일은 건드리지 말고, abap/ 안의 기존 파일을 rename하지 마라" +
       " (rename은 지원하지 않아 적용 단계에서 실패한다).",
   ].join(" ");

@@ -544,6 +544,17 @@ export function findLongIdentifiers(source, limit = 30) {
 
 const LINT_KINDS = new Set(["CLAS", "CLAS_LOCALS", "INTF"]);
 
+// BDEF·CDS·DDLX·SRVD의 주석은 // 또는 /* */만 된다. ABAP 클래스식 " 주석은 활성화 오류
+// (Unexpected character)로 이어진다 (2026-11-08 사원 BDEF에서 실제 발생).
+const DDL_LIKE_KINDS = new Set(["BDEF", "DDLS", "DDLX", "SRVD"]);
+
+export function findAbapStyleComments(source) {
+  return String(source ?? "")
+    .split(/\r?\n/)
+    .map((line, index) => ({ line: index + 1, text: line }))
+    .filter(({ text }) => /^\s*["*]/.test(text) && !/^\s*\*\//.test(text));
+}
+
 export async function rehearseAbapChanges({ worktreeDir, changedFiles, packageName, rehearsalObjects = [] }) {
   const { deletes, upserts, failed } = planAbapChanges(changedFiles);
   const results = failed.map((f) => ({ path: f.path, name: f.name, kind: null, status: "error", message: f.reason }));
@@ -562,6 +573,18 @@ export async function rehearseAbapChanges({ worktreeDir, changedFiles, packageNa
       lintErrors.set(
         item.path,
         `30자를 넘는 이름: ${long.map((l) => `${l.name}(${l.name.length}자, ${l.line}행)`).join(", ")}`
+      );
+    }
+  }
+  for (const item of upserts.filter((p) => DDL_LIKE_KINDS.has(p.kind))) {
+    const source = fs.readFileSync(path.join(worktreeDir, item.path), "utf8");
+    const comments = findAbapStyleComments(source);
+    if (comments.length > 0) {
+      lintErrors.set(
+        item.path,
+        `${item.kind}에서는 " 나 * 로 시작하는 ABAP식 주석을 쓸 수 없습니다 (// 사용): ${comments
+          .map((c) => `${c.line}행`)
+          .join(", ")}`
       );
     }
   }

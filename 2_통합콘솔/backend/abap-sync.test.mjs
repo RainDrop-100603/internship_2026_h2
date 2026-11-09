@@ -147,3 +147,16 @@ test("rehearsalKey: 로컬 인클루드는 소속 클래스 키로 묶인다", a
   assert.equal(rehearsalKey("CLAS_LOCALS", "ZBP_X"), "CLAS:ZBP_X");
   assert.equal(rehearsalKey("BDEF", "ZR_X"), "BDEF:ZR_X");
 });
+
+test("findAbapStyleComments: BDEF의 \" 주석을 찾고 // 주석은 통과시킨다", async () => {
+  const { findAbapStyleComments } = await import("./abapSync.mjs");
+  const source = [
+    "managed implementation in class zbp_x unique;",
+    "// 정상 주석",
+    '  " Activate optimized를 쓰지 않는다',
+    "/* 블록 주석",
+    " */",
+    "* 별표 주석",
+  ].join("\n");
+  assert.deepEqual(findAbapStyleComments(source).map((c) => c.line), [3, 6]);
+});

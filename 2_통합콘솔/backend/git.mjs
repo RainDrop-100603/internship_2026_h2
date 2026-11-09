@@ -48,10 +48,14 @@ export async function getRevision(cwd, ref) {
 }
 
 // worktree의 모든 변경사항을 하나의 커밋으로 만든다. 변경사항이 없으면 null 반환.
+// Codex 리뷰용 부트스트랩 파일(.codex/, AGENTS.md)은 커밋에서 뺀다 — 들어가면 원본 체크아웃의
+// 같은 이름 untracked 파일과 충돌해 승인 시 ff-merge가 막힌다 (2026-11-09 실제 발생).
+export const COMMIT_EXCLUDES = [":(exclude).codex", ":(exclude)AGENTS.md"];
+
 export async function commitAll({ cwd, message }) {
-  await git(["add", "-A"], cwd);
-  const status = await git(["status", "--porcelain"], cwd);
-  if (!status.trim()) return null;
+  await git(["add", "-A", "--", ".", ...COMMIT_EXCLUDES], cwd);
+  const staged = await git(["diff", "--cached", "--name-only"], cwd);
+  if (!staged.trim()) return null;
   await git(["commit", "-m", message], cwd);
   return git(["rev-parse", "HEAD"], cwd);
 }
