@@ -13,6 +13,18 @@ class ZCL_PS_SEED_TESTDATA_YJ definition
     " 지우므로, 사용자가 화면에서 만든 데이터(C/E/M/W, PRJ/WBS/ACT 접두어)는
     " 그대로 남는다. 각 BO의 채번 determination도 자기 접두어만 대상으로
     " 최대값을 구하기 때문에 'T' ID가 채번에 끼어들지 않는다.
+    "
+    " 재적재 시 프로젝트·WBS의 UUID는 새로 만들지 않고 같은 ID로 이미 들어가
+    " 있던 UUID를 그대로 재사용한다. 사용자가 테스트 프로젝트/WBS 아래에
+    " 직접 만든 WBS·Activity(WBS/ACT 접두어, 삭제 대상 아님)가 참조하는
+    " project_uuid / wbs_uuid 가 재실행 후에도 계속 유효해야 하기 때문이다.
+
+    types:
+      begin of ty_id_uuid,
+        id   type c length 10,
+        uuid type sysuuid_x16,
+      end of ty_id_uuid,
+      ty_id_uuid_tab type sorted table of ty_id_uuid with unique key id.
 
     " 기준정보 ID (영문 1자 + 숫자 9자리)
     constants c_emp1 type zps_employee_yj-employee_id value 'T000000001'.
@@ -38,6 +50,12 @@ class ZCL_PS_SEED_TESTDATA_YJ definition
     methods new_uuid
       returning value(rv_uuid) type sysuuid_x16.
 
+    " 같은 ID로 이미 있던 UUID가 있으면 그것을, 없으면 새 UUID를 돌려준다.
+    methods stable_uuid
+      importing it_old        type ty_id_uuid_tab
+                iv_id         type ty_id_uuid-id
+      returning value(rv_uuid) type sysuuid_x16.
+
 endclass.
 
 
@@ -51,6 +69,21 @@ class ZCL_PS_SEED_TESTDATA_YJ implementation.
       catch cx_uuid_error.
         clear rv_uuid.
     endtry.
+
+  endmethod.
+
+
+  method stable_uuid.
+
+    try.
+        rv_uuid = it_old[ id = iv_id ]-uuid.
+      catch cx_sy_itab_line_not_found.
+        clear rv_uuid.
+    endtry.
+
+    if rv_uuid is initial.
+      rv_uuid = new_uuid( ).
+    endif.
 
   endmethod.
 
@@ -70,6 +103,22 @@ class ZCL_PS_SEED_TESTDATA_YJ implementation.
     get time stamp field lv_now.
 
     data(lv_user) = sy-uname.
+
+    "--------------------------------------------------------------
+    " 이미 들어가 있는 테스트 프로젝트·WBS의 UUID 조회 (재사용용)
+    "--------------------------------------------------------------
+    data lt_old_prj type ty_id_uuid_tab.
+    data lt_old_wbs type ty_id_uuid_tab.
+
+    select project_id as id, project_uuid as uuid
+      from zps_project_yj
+      where project_id like 'T%'
+      into table @lt_old_prj.
+
+    select wbs_id as id, wbs_uuid as uuid
+      from zps_wbs_yj
+      where wbs_id like 'T%'
+      into table @lt_old_wbs.
 
     "--------------------------------------------------------------
     " 기준정보 — 사원 3명 (부서·직급 코드는 1단계 코드 테이블 값만 사용)
@@ -150,8 +199,8 @@ class ZCL_PS_SEED_TESTDATA_YJ implementation.
     "   TPRJ000001 : SHIP — 선박 타입 필수 프로파일, 선박 타입 LNG
     "   TPRJ000002 : RND  — 선박 타입 선택 프로파일, 선박 타입 없음 (TS-05 대조군)
     "--------------------------------------------------------------
-    data(lv_prj1_uuid) = new_uuid( ).
-    data(lv_prj2_uuid) = new_uuid( ).
+    data(lv_prj1_uuid) = stable_uuid( it_old = lt_old_prj iv_id = c_prj1 ).
+    data(lv_prj2_uuid) = stable_uuid( it_old = lt_old_prj iv_id = c_prj2 ).
 
     lt_prj = value #(
       ( client = sy-mandt project_uuid = lv_prj1_uuid
@@ -180,13 +229,13 @@ class ZCL_PS_SEED_TESTDATA_YJ implementation.
     "                         └─ TWBS000006 (L2, CRTD)
     " 상태 변경 기능이 1차 MVP에 없으므로 TECO 범위는 데이터로 직접 만든다.
     "--------------------------------------------------------------
-    data(lv_wbs1_uuid) = new_uuid( ).
-    data(lv_wbs2_uuid) = new_uuid( ).
-    data(lv_wbs3_uuid) = new_uuid( ).
-    data(lv_wbs4_uuid) = new_uuid( ).
-    data(lv_wbs5_uuid) = new_uuid( ).
-    data(lv_wbs6_uuid) = new_uuid( ).
-    data(lv_wbs7_uuid) = new_uuid( ).
+    data(lv_wbs1_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs1 ).
+    data(lv_wbs2_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs2 ).
+    data(lv_wbs3_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs3 ).
+    data(lv_wbs4_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs4 ).
+    data(lv_wbs5_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs5 ).
+    data(lv_wbs6_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs6 ).
+    data(lv_wbs7_uuid) = stable_uuid( it_old = lt_old_wbs iv_id = c_wbs7 ).
 
     lt_wbs = value #(
       ( client = sy-mandt wbs_uuid = lv_wbs1_uuid project_uuid = lv_prj1_uuid
@@ -256,6 +305,8 @@ class ZCL_PS_SEED_TESTDATA_YJ implementation.
     "--------------------------------------------------------------
     " 'T' 접두어 행만 삭제한 뒤 다시 적재 — 여러 번 실행해도 결과가 같다.
     " 하위부터 지워 참조가 끊긴 행이 남지 않게 한다.
+    " 프로젝트·WBS는 기존 UUID를 그대로 다시 넣으므로, 테스트 프로젝트/WBS
+    " 아래에 사용자가 만든 WBS·Activity의 부모 참조도 그대로 유지된다.
     "--------------------------------------------------------------
     delete from zps_activity_yj where activity_id like 'T%'.
     delete from zps_wbs_yj      where wbs_id like 'T%'.
