@@ -20,8 +20,15 @@ annotate entity ZC_PS_WBS_YJ with
       type: #IDENTIFICATION_REFERENCE,
       label: 'WBS 정보',
       position: 10
+    },
+    {
+      id: 'Activity',
+      purpose: #STANDARD,
+      type: #LINEITEM_REFERENCE,
+      label: 'Activity',
+      position: 20,
+      targetElement: '_Activity'
     }
-    // position 20: 다음 단계에서 Activity facet(#LINEITEM_REFERENCE, '_Activity')을 추가할 자리
   ]
 
   @UI.hidden: true

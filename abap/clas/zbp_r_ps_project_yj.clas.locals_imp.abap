@@ -677,8 +677,11 @@ CLASS lhc_wbs IMPLEMENTATION.
                                     THEN if_abap_behv=>fc-f-read_only
                                     ELSE if_abap_behv=>fc-f-unrestricted ).
 
+      " BR-09: 범위를 벗어난 WBS(자신·상위·프로젝트 중 TECO·CLSD)에는
+      " Activity를 새로 등록할 수 없다.
       APPEND VALUE #( %tky               = wbs-%tky
                        %update            = lv_update
+                       %assoc-_Activity   = lv_update
                        %field-ParentWbsId = lv_parent_fc )
              TO result.
 
@@ -1072,6 +1075,579 @@ CLASS lhc_wbs IMPLEMENTATION.
                                             severity = if_abap_behv_message=>severity-error
                                             text     = '완료 또는 종료된 범위는 변경할 수 없습니다.' ) )
                TO reported-wbs.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+CLASS lhc_activity DEFINITION INHERITING FROM cl_abap_behavior_handler.
+
+  PRIVATE SECTION.
+
+    " 권한은 프로젝트(루트)에 위임한다 (authorization dependent by _Project).
+    METHODS get_instance_features FOR INSTANCE FEATURES
+      IMPORTING keys REQUEST requested_features FOR Activity RESULT result.
+
+    METHODS setActivityDefaults FOR DETERMINE ON MODIFY
+      IMPORTING keys FOR Activity~setActivityDefaults.
+
+    METHODS setActivityId FOR DETERMINE ON SAVE
+      IMPORTING keys FOR Activity~setActivityId.
+
+    METHODS validateActivityRequired FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Activity~validateActivityRequired.
+
+    METHODS validateWorkCenter FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Activity~validateWorkCenter.
+
+    METHODS validateEmployee FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Activity~validateEmployee.
+
+    METHODS validateActivityDates FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Activity~validateActivityDates.
+
+    METHODS validateActivityScope FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Activity~validateActivityScope.
+
+ENDCLASS.
+
+CLASS lhc_activity IMPLEMENTATION.
+
+  METHOD get_instance_features.
+
+    " BR-09: 프로젝트·직속 WBS·그 상위 WBS 중 TECO·CLSD가 하나라도 있으면
+    " Activity를 수정할 수 없다 (등록 차단은 WBS의 %assoc-_Activity에서 처리).
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    IF activities IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " 직속 WBS (draft 포함)
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity BY \_Wbs
+        FIELDS ( ProjectUuid WbsId ParentWbsId Status )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(parent_wbs).
+
+    " 소속 프로젝트 상태. 신규 draft에서는 Activity의 ProjectUuid가 아직 비어 있을 수
+    " 있으므로 직속 WBS의 to-parent association을 따라 읽는다.
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Wbs BY \_Project
+        FIELDS ( ProjectUuid Status )
+        WITH CORRESPONDING #( parent_wbs )
+      RESULT DATA(projects).
+
+    " 같은 프로젝트의 모든 WBS (상위 체인 추적용, draft 포함)
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Project BY \_Wbs
+        FIELDS ( ProjectUuid WbsId ParentWbsId Status )
+        WITH CORRESPONDING #( projects )
+      RESULT DATA(all_wbs).
+
+    DATA visited TYPE SORTED TABLE OF zps_wbs_yj-wbs_id WITH UNIQUE KEY table_line.
+
+    LOOP AT activities INTO DATA(activity).
+
+      DATA(lv_locked) = abap_false.
+
+      READ TABLE parent_wbs INTO DATA(ls_wbs) WITH KEY WbsUuid = activity-WbsUuid.
+
+      IF sy-subrc <> 0.
+        lv_locked = abap_true.
+      ELSE.
+
+        " 직속 WBS 상태
+        IF ls_wbs-Status <> 'CRTD' AND ls_wbs-Status <> 'REL'.
+          lv_locked = abap_true.
+        ENDIF.
+
+        " 프로젝트 상태
+        READ TABLE projects INTO DATA(ls_prj) WITH KEY ProjectUuid = ls_wbs-ProjectUuid.
+        IF sy-subrc <> 0 OR ( ls_prj-Status <> 'CRTD' AND ls_prj-Status <> 'REL' ).
+          lv_locked = abap_true.
+        ENDIF.
+
+        " 직속 WBS의 상위 체인을 루트까지 따라간다.
+        " 방문한 WbsId 집합으로 순환만 감지하고 깊이 제한은 두지 않는다.
+        CLEAR visited.
+        DATA(lv_node) = ls_wbs-ParentWbsId.
+        WHILE lv_node IS NOT INITIAL.
+          IF line_exists( visited[ table_line = lv_node ] ).
+            EXIT.
+          ENDIF.
+          INSERT lv_node INTO TABLE visited.
+          READ TABLE all_wbs INTO DATA(ls_anc)
+               WITH KEY ProjectUuid = ls_wbs-ProjectUuid
+                        WbsId       = lv_node.
+          IF sy-subrc <> 0.
+            CLEAR lv_node.
+          ELSE.
+            IF ls_anc-Status <> 'CRTD' AND ls_anc-Status <> 'REL'.
+              lv_locked = abap_true.
+            ENDIF.
+            lv_node = ls_anc-ParentWbsId.
+          ENDIF.
+        ENDWHILE.
+
+      ENDIF.
+
+      DATA(lv_update) = COND #( WHEN lv_locked = abap_true
+                                 THEN if_abap_behv=>fc-o-disabled
+                                 ELSE if_abap_behv=>fc-o-enabled ).
+
+      APPEND VALUE #( %tky    = activity-%tky
+                       %update = lv_update )
+             TO result.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD setActivityDefaults.
+
+    " BR-02: 상태는 직접 입력할 수 없고 생성 시 PLAN으로 설정한다.
+    " ProjectUuid는 소속(직속) WBS의 ProjectUuid를 그대로 쓴다.
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid ProjectUuid Status )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    IF activities IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity BY \_Wbs
+        FIELDS ( ProjectUuid )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(parent_wbs).
+
+    DATA lt_update TYPE TABLE FOR UPDATE zr_ps_project_yj\\Activity.
+
+    LOOP AT activities INTO DATA(activity).
+
+      DATA(lv_project_uuid) = activity-ProjectUuid.
+
+      READ TABLE parent_wbs INTO DATA(ls_wbs) WITH KEY WbsUuid = activity-WbsUuid.
+      IF sy-subrc = 0.
+        lv_project_uuid = ls_wbs-ProjectUuid.
+      ENDIF.
+
+      DATA(lv_status) = activity-Status.
+      IF lv_status IS INITIAL.
+        lv_status = 'PLAN'.
+      ENDIF.
+
+      APPEND VALUE #( %tky        = activity-%tky
+                       ProjectUuid = lv_project_uuid
+                       Status      = lv_status )
+             TO lt_update.
+
+    ENDLOOP.
+
+    IF lt_update IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    MODIFY ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        UPDATE FIELDS ( ProjectUuid Status )
+        WITH lt_update.
+
+  ENDMETHOD.
+
+  METHOD setActivityId.
+
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( ActivityId )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    " 이미 ActivityId가 있어도 그 번호를 활성 테이블의 다른 Activity(다른 UUID)가
+    " 먼저 쓰고 있으면 재채번 대상으로 잡는다 (3·4단계와 같은 패턴).
+    DATA assigned_ids TYPE SORTED TABLE OF zps_activity_yj-activity_id WITH NON-UNIQUE KEY table_line.
+
+    LOOP AT activities INTO DATA(ls_scan) WHERE ActivityId IS NOT INITIAL.
+      INSERT ls_scan-ActivityId INTO TABLE assigned_ids.
+    ENDLOOP.
+
+    DATA lt_active TYPE SORTED TABLE OF zps_activity_yj WITH NON-UNIQUE KEY activity_id.
+
+    IF assigned_ids IS NOT INITIAL.
+      SELECT activity_id, activity_uuid FROM zps_activity_yj
+        FOR ALL ENTRIES IN @assigned_ids
+        WHERE activity_id = @assigned_ids-table_line
+        INTO CORRESPONDING FIELDS OF TABLE @lt_active.
+    ENDIF.
+
+    DATA has_acts_to_update TYPE abap_bool VALUE abap_false.
+
+    LOOP AT activities INTO DATA(ls_check).
+      IF ls_check-ActivityId IS INITIAL
+         OR ( line_exists( lt_active[ activity_id = ls_check-ActivityId ] )
+              AND NOT line_exists( lt_active[ activity_id   = ls_check-ActivityId
+                                               activity_uuid = ls_check-%tky-ActivityUuid ] ) ).
+        has_acts_to_update = abap_true.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
+
+    IF has_acts_to_update = abap_false.
+      RETURN.
+    ENDIF.
+
+    " 'ACT'로 시작하는 기존 최대 ActivityId를 조회해 다음 번호부터 채번한다
+    " (6단계 테스트 데이터의 'T' 접두어 ID와 섞이지 않도록 접두어를 한정한다).
+    " 동시 생성 시 중복 가능성은 Mock-up 범위에서 허용한다
+    " (번호 범위 객체는 서버에 없어 사용하지 않음).
+    SELECT SINGLE MAX( activity_id ) FROM zps_activity_yj
+      WHERE activity_id LIKE 'ACT%'
+      INTO @DATA(lv_max_activity_id).
+
+    DATA(lv_next_nr) = COND i( WHEN lv_max_activity_id IS NOT INITIAL
+                                THEN lv_max_activity_id+3(7)
+                                ELSE 0 ).
+
+    LOOP AT activities INTO DATA(activity).
+
+      CHECK activity-ActivityId IS INITIAL
+         OR ( line_exists( lt_active[ activity_id = activity-ActivityId ] )
+              AND NOT line_exists( lt_active[ activity_id   = activity-ActivityId
+                                               activity_uuid = activity-%tky-ActivityUuid ] ) ).
+
+      lv_next_nr = lv_next_nr + 1.
+
+      DATA(lv_activity_id) = |ACT{ lv_next_nr WIDTH = 7 ALIGN = RIGHT PAD = '0' }|.
+
+      MODIFY ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+        ENTITY Activity
+          UPDATE FIELDS ( ActivityId )
+          WITH VALUE #( ( %tky       = activity-%tky
+                           ActivityId = lv_activity_id ) ).
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD validateActivityRequired.
+
+    " CM-01: 이름·작업장·담당자는 필수 (TS-11).
+    " 자식 엔터티 메시지는 상위(WBS·프로젝트)를 가리키는 %path가 있어야 UI에 표시된다.
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid ProjectUuid ActivityName WorkCenterId EmployeeId )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    LOOP AT activities INTO DATA(activity).
+
+      APPEND VALUE #( %tky = activity-%tky %state_area = 'VALIDATE_ACT_REQUIRED' ) TO reported-activity.
+
+      IF activity-ActivityName IS INITIAL OR activity-WorkCenterId IS INITIAL
+         OR activity-EmployeeId IS INITIAL.
+
+        APPEND VALUE #( %tky = activity-%tky ) TO failed-activity.
+
+      ENDIF.
+
+      IF activity-ActivityName IS INITIAL.
+        APPEND VALUE #( %tky                  = activity-%tky
+                         %path                 = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area           = 'VALIDATE_ACT_REQUIRED'
+                         %msg                  = new_message_with_text(
+                                                      severity = if_abap_behv_message=>severity-error
+                                                      text     = '필수 항목을 입력해주세요.' )
+                         %element-ActivityName = if_abap_behv=>mk-on )
+               TO reported-activity.
+      ENDIF.
+
+      IF activity-WorkCenterId IS INITIAL.
+        APPEND VALUE #( %tky                  = activity-%tky
+                         %path                 = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area           = 'VALIDATE_ACT_REQUIRED'
+                         %msg                  = new_message_with_text(
+                                                      severity = if_abap_behv_message=>severity-error
+                                                      text     = '필수 항목을 입력해주세요.' )
+                         %element-WorkCenterId = if_abap_behv=>mk-on )
+               TO reported-activity.
+      ENDIF.
+
+      IF activity-EmployeeId IS INITIAL.
+        APPEND VALUE #( %tky                = activity-%tky
+                         %path               = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area         = 'VALIDATE_ACT_REQUIRED'
+                         %msg                = new_message_with_text(
+                                                    severity = if_abap_behv_message=>severity-error
+                                                    text     = '필수 항목을 입력해주세요.' )
+                         %element-EmployeeId = if_abap_behv=>mk-on )
+               TO reported-activity.
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD validateWorkCenter.
+
+    " BR-16: 작업장은 마스터에 있는 값만 쓸 수 있다 (CM-02).
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid ProjectUuid WorkCenterId )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    DATA wc_ids   TYPE SORTED TABLE OF zps_wrkctr_yj-work_center_id WITH UNIQUE KEY table_line.
+    DATA found_wc TYPE SORTED TABLE OF zps_wrkctr_yj-work_center_id WITH NON-UNIQUE KEY table_line.
+
+    LOOP AT activities INTO DATA(ls_activity) WHERE WorkCenterId IS NOT INITIAL.
+      INSERT ls_activity-WorkCenterId INTO TABLE wc_ids.
+    ENDLOOP.
+
+    IF wc_ids IS NOT INITIAL.
+      SELECT work_center_id FROM zps_wrkctr_yj
+        FOR ALL ENTRIES IN @wc_ids
+        WHERE work_center_id = @wc_ids-table_line
+        INTO TABLE @found_wc.
+    ENDIF.
+
+    LOOP AT activities INTO DATA(activity).
+
+      APPEND VALUE #( %tky = activity-%tky %state_area = 'VALIDATE_WORK_CENTER' ) TO reported-activity.
+
+      " 빈 값은 validateActivityRequired(CM-01)에서 처리한다.
+      IF activity-WorkCenterId IS NOT INITIAL
+         AND NOT line_exists( found_wc[ table_line = activity-WorkCenterId ] ).
+
+        APPEND VALUE #( %tky = activity-%tky ) TO failed-activity.
+
+        APPEND VALUE #( %tky                  = activity-%tky
+                         %path                 = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area           = 'VALIDATE_WORK_CENTER'
+                         %msg                  = new_message_with_text(
+                                                      severity = if_abap_behv_message=>severity-error
+                                                      text     = '유효한 참조 코드를 선택해주세요.' )
+                         %element-WorkCenterId = if_abap_behv=>mk-on )
+               TO reported-activity.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD validateEmployee.
+
+    " BR-16: 담당자는 사원 마스터에 있는 값만 쓸 수 있다 (CM-02).
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid ProjectUuid EmployeeId )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    DATA emp_ids   TYPE SORTED TABLE OF zps_employee_yj-employee_id WITH UNIQUE KEY table_line.
+    DATA found_emp TYPE SORTED TABLE OF zps_employee_yj-employee_id WITH NON-UNIQUE KEY table_line.
+
+    LOOP AT activities INTO DATA(ls_activity) WHERE EmployeeId IS NOT INITIAL.
+      INSERT ls_activity-EmployeeId INTO TABLE emp_ids.
+    ENDLOOP.
+
+    IF emp_ids IS NOT INITIAL.
+      SELECT employee_id FROM zps_employee_yj
+        FOR ALL ENTRIES IN @emp_ids
+        WHERE employee_id = @emp_ids-table_line
+        INTO TABLE @found_emp.
+    ENDIF.
+
+    LOOP AT activities INTO DATA(activity).
+
+      APPEND VALUE #( %tky = activity-%tky %state_area = 'VALIDATE_EMPLOYEE' ) TO reported-activity.
+
+      IF activity-EmployeeId IS NOT INITIAL
+         AND NOT line_exists( found_emp[ table_line = activity-EmployeeId ] ).
+
+        APPEND VALUE #( %tky = activity-%tky ) TO failed-activity.
+
+        APPEND VALUE #( %tky                = activity-%tky
+                         %path               = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area         = 'VALIDATE_EMPLOYEE'
+                         %msg                = new_message_with_text(
+                                                    severity = if_abap_behv_message=>severity-error
+                                                    text     = '유효한 참조 코드를 선택해주세요.' )
+                         %element-EmployeeId = if_abap_behv=>mk-on )
+               TO reported-activity.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD validateActivityDates.
+
+    " BR-15: 시작일 <= 종료일 (CM-03).
+    " 프로젝트 기간을 벗어난 일정은 검증하지 않는다 (ACT-01, TS-11).
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid ProjectUuid StartDate EndDate )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    LOOP AT activities INTO DATA(activity).
+
+      APPEND VALUE #( %tky = activity-%tky %state_area = 'VALIDATE_ACT_DATES' ) TO reported-activity.
+
+      IF activity-StartDate IS NOT INITIAL AND activity-EndDate IS NOT INITIAL
+         AND activity-StartDate > activity-EndDate.
+
+        APPEND VALUE #( %tky = activity-%tky ) TO failed-activity.
+
+        APPEND VALUE #( %tky               = activity-%tky
+                         %path              = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area        = 'VALIDATE_ACT_DATES'
+                         %msg               = new_message_with_text(
+                                                   severity = if_abap_behv_message=>severity-error
+                                                   text     = '시작일은 종료일보다 늦을 수 없습니다.' )
+                         %element-StartDate = if_abap_behv=>mk-on
+                         %element-EndDate   = if_abap_behv=>mk-on )
+               TO reported-activity.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD validateActivityScope.
+
+    " BR-09: 프로젝트, 직속 WBS, 그 WBS의 모든 상위 WBS가 CRTD 또는 REL이어야
+    " Activity를 등록·수정할 수 있다 (ACT-M04).
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity
+        FIELDS ( WbsUuid ProjectUuid )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(activities).
+
+    IF activities IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Activity BY \_Wbs
+        FIELDS ( ProjectUuid WbsId ParentWbsId Status )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(parent_wbs).
+
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Wbs BY \_Project
+        FIELDS ( ProjectUuid Status )
+        WITH CORRESPONDING #( parent_wbs )
+      RESULT DATA(projects).
+
+    READ ENTITIES OF zr_ps_project_yj IN LOCAL MODE
+      ENTITY Project BY \_Wbs
+        FIELDS ( ProjectUuid WbsId ParentWbsId Status )
+        WITH CORRESPONDING #( projects )
+      RESULT DATA(all_wbs).
+
+    DATA visited TYPE SORTED TABLE OF zps_wbs_yj-wbs_id WITH UNIQUE KEY table_line.
+
+    LOOP AT activities INTO DATA(activity).
+
+      APPEND VALUE #( %tky = activity-%tky %state_area = 'VALIDATE_ACT_SCOPE' ) TO reported-activity.
+
+      DATA(lv_blocked) = abap_false.
+
+      READ TABLE parent_wbs INTO DATA(ls_wbs) WITH KEY WbsUuid = activity-WbsUuid.
+
+      IF sy-subrc <> 0.
+        lv_blocked = abap_true.
+      ELSE.
+
+        " 직속 WBS 상태
+        IF ls_wbs-Status <> 'CRTD' AND ls_wbs-Status <> 'REL'.
+          lv_blocked = abap_true.
+        ENDIF.
+
+        " 프로젝트 상태
+        READ TABLE projects INTO DATA(ls_prj) WITH KEY ProjectUuid = ls_wbs-ProjectUuid.
+        IF sy-subrc <> 0 OR ( ls_prj-Status <> 'CRTD' AND ls_prj-Status <> 'REL' ).
+          lv_blocked = abap_true.
+        ENDIF.
+
+        " 직속 WBS의 상위 체인을 루트까지 따라간다.
+        CLEAR visited.
+        DATA(lv_node) = ls_wbs-ParentWbsId.
+        WHILE lv_node IS NOT INITIAL.
+          IF line_exists( visited[ table_line = lv_node ] ).
+            EXIT.
+          ENDIF.
+          INSERT lv_node INTO TABLE visited.
+          READ TABLE all_wbs INTO DATA(ls_anc)
+               WITH KEY ProjectUuid = ls_wbs-ProjectUuid
+                        WbsId       = lv_node.
+          IF sy-subrc <> 0.
+            CLEAR lv_node.
+          ELSE.
+            IF ls_anc-Status <> 'CRTD' AND ls_anc-Status <> 'REL'.
+              lv_blocked = abap_true.
+            ENDIF.
+            lv_node = ls_anc-ParentWbsId.
+          ENDIF.
+        ENDWHILE.
+
+      ENDIF.
+
+      IF lv_blocked = abap_true.
+
+        APPEND VALUE #( %tky = activity-%tky ) TO failed-activity.
+
+        APPEND VALUE #( %tky        = activity-%tky
+                         %path       = VALUE #(
+                             Project-%tky = VALUE #( ProjectUuid = activity-ProjectUuid
+                                                     %is_draft   = activity-%tky-%is_draft )
+                             Wbs-%tky     = VALUE #( WbsUuid   = activity-WbsUuid
+                                                     %is_draft = activity-%tky-%is_draft ) )
+                         %state_area = 'VALIDATE_ACT_SCOPE'
+                         %msg        = new_message_with_text(
+                                            severity = if_abap_behv_message=>severity-error
+                                            text     = '완료 또는 종료된 범위에는 Activity를 등록·수정할 수 없습니다.' ) )
+               TO reported-activity.
 
       ENDIF.
 

@@ -54,7 +54,12 @@ authorization master ( global )
                                    validation validateDates;
                                    validation Wbs~validateWbsName;
                                    validation Wbs~validateParent;
-                                   validation Wbs~validateWbsScope; }
+                                   validation Wbs~validateWbsScope;
+                                   validation Activity~validateActivityRequired;
+                                   validation Activity~validateWorkCenter;
+                                   validation Activity~validateEmployee;
+                                   validation Activity~validateActivityDates;
+                                   validation Activity~validateActivityScope; }
 
   mapping for zps_project_yj corresponding
   {
@@ -101,6 +106,10 @@ authorization dependent by _Project
 
   association _Project { with draft; }
 
+  // Activity도 프로젝트와 같은 draft·lock 단위로 묶인다. BR-09 범위를 벗어난 WBS
+  // (자신·상위 WBS·프로젝트 중 TECO·CLSD)에서는 Activity 등록을 막는다.
+  association _Activity { create ( features : instance ); with draft; }
+
   // BR-02: 상태는 CRTD로, BR-12: Level은 부모 Level + 1로 자동 설정
   determination setWbsDefaults on modify { create; field ParentWbsId; }
   // 'WBS' + 7자리 채번 (BR-17)
@@ -118,6 +127,52 @@ authorization dependent by _Project
     WbsName            = wbs_name;
     ParentWbsId        = parent_wbs_id;
     WbsLevel           = wbs_level;
+    Status             = status;
+    LocalLastChangedAt = local_last_changed_at;
+  }
+}
+
+define behavior for ZR_PS_ACTIVITY_YJ alias Activity
+persistent table zps_activity_yj
+draft table zps_act_d_yj
+etag master LocalLastChangedAt
+lock dependent by _Project
+authorization dependent by _Project
+
+{
+  field ( numbering : managed, readonly ) ActivityUuid;
+  field ( readonly ) WbsUuid, ProjectUuid, ActivityId, Status, LocalLastChangedAt;
+
+  field ( mandatory ) ActivityName, WorkCenterId, EmployeeId;
+
+  update ( features : instance );
+  internal delete;
+
+  association _Wbs { with draft; }
+  association _Project { with draft; }
+
+  // BR-02: 상태는 PLAN으로, ProjectUuid는 소속 WBS에서 가져온다
+  determination setActivityDefaults on modify { create; }
+  // 'ACT' + 7자리 채번 (BR-17)
+  determination setActivityId on save { create; }
+
+  validation validateActivityRequired on save { create; update; field ActivityName, WorkCenterId, EmployeeId; }
+  validation validateWorkCenter on save { create; update; field WorkCenterId; }
+  validation validateEmployee on save { create; update; field EmployeeId; }
+  validation validateActivityDates on save { create; update; field StartDate, EndDate; }
+  validation validateActivityScope on save { create; update; }
+
+  mapping for zps_activity_yj corresponding
+  {
+    ActivityUuid       = activity_uuid;
+    WbsUuid            = wbs_uuid;
+    ProjectUuid        = project_uuid;
+    ActivityId         = activity_id;
+    ActivityName       = activity_name;
+    WorkCenterId       = work_center_id;
+    EmployeeId         = employee_id;
+    StartDate          = start_date;
+    EndDate            = end_date;
     Status             = status;
     LocalLastChangedAt = local_last_changed_at;
   }

@@ -28,6 +28,7 @@ define view entity ZC_PS_WBS_YJ
       LocalLastChangedAt,
 
       // Compositions / Associations
-      _Project : redirected to parent ZC_PS_PROJECT_YJ,
+      _Activity : redirected to composition child ZC_PS_ACTIVITY_YJ,
+      _Project  : redirected to parent ZC_PS_PROJECT_YJ,
       _Status
 }
