@@ -1,0 +1,5 @@
+CLASS zbp_r_ps_material_yj DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zr_ps_material_yj.
+ENDCLASS.
+
+CLASS zbp_r_ps_material_yj IMPLEMENTATION.
+ENDCLASS.

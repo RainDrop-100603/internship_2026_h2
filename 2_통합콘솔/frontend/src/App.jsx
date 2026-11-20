@@ -17,6 +17,8 @@ import {
   openTaskFolder,
   getAgentSettings,
   saveAgentSettings,
+  requestAbapCheck,
+  getAbapCheck,
 } from "./api";
 import { parseFileDiff } from "./diffParse";
 import "./App.css";
@@ -141,9 +143,12 @@ function runKindLabel(kind) {
 }
 
 function displayRunModel(run) {
-  if (run.actualModels?.length) {
+  const main = run.mainModel ?? run.actualModels?.[0];
+  if (main) {
     const label = run.modelSource === "configured" ? "적용 모델" : "실제 모델";
-    return { label, value: run.actualModels.join(", ") };
+    // SDK가 내부 보조 작업에 쓰는 모델(예: Haiku)은 주 모델과 따로 보여준다.
+    const aux = (run.actualModels ?? []).filter((model) => model !== main);
+    return { label, value: main, aux };
   }
   if (run.status === "running") {
     const requested = run.requestedModel === "default" ? "기본 모델" : run.requestedModel;
@@ -158,8 +163,8 @@ function displayRunEffort(run) {
     const label = run.effortSource === "reported" ? "실제 effort" : "적용 effort";
     return { label, value: run.actualEffort };
   }
-  if (run.status === "running") return { label: "요청 effort", value: run.effort || "기본값" };
-  return { label: "설정 effort", value: run.effort || "기본값" };
+  if (run.status === "running") return { label: "요청 effort", value: run.effort || "미지원·기본값" };
+  return { label: "설정 effort", value: run.effort || "미지원·기본값" };
 }
 
 function displayConfig(config) {
@@ -177,6 +182,12 @@ function UsageEntry({ run }) {
       <div className="usage-entry__identity">
         <strong>{agentLabel(run.agent)} · {runKindLabel(run.kind)}</strong>
         <span>{model.label} {model.value}</span>
+        {model.aux?.length > 0 && <span className="usage-entry__aux">보조 {model.aux.join(", ")}</span>}
+        {run.modelMismatch && (
+          <span className="usage-entry__mismatch">
+            ⚠ 요청 {run.modelMismatch.expected} · 실제 {run.modelMismatch.actual}
+          </span>
+        )}
         <span>{effort.label} {effort.value}</span>
       </div>
       {usage ? (
@@ -197,6 +208,34 @@ function UsageEntry({ run }) {
       )}
     </div>
   );
+}
+
+const CHECK_STATUS_LABEL = { ok: "통과", error: "오류", skipped: "승인 시 검사" };
+
+function AbapCheckRow({ result }) {
+  return (
+    <li className={`abap-check__row abap-check__row--${result.status}`}>
+      <span className="abap-check__badge">{CHECK_STATUS_LABEL[result.status] ?? result.status}</span>
+      <span className="abap-check__path">{result.path}</span>
+      {result.message && <span className="abap-check__message">{result.message}</span>}
+    </li>
+  );
+}
+
+function modelOption(options, agent, value) {
+  return options?.models?.[agent]?.find((model) => model.value === value) ?? null;
+}
+
+// 모델을 바꾸면 그 모델이 지원하는 effort로 맞춘다 (지원하지 않으면 null).
+function effortForModel(model, currentEffort) {
+  const efforts = model?.efforts ?? [];
+  if (efforts.length === 0) return null;
+  if (efforts.includes(currentEffort)) return currentEffort;
+  return model.defaultEffort && efforts.includes(model.defaultEffort)
+    ? model.defaultEffort
+    : efforts.includes("medium")
+      ? "medium"
+      : efforts[0];
 }
 
 function App() {
@@ -238,6 +277,11 @@ function App() {
   const [artifactsCleaned, setArtifactsCleaned] = useState(false);
   const [taskAgentConfig, setTaskAgentConfig] = useState(null);
   const [taskRuns, setTaskRuns] = useState([]);
+  const [taskAbapMode, setTaskAbapMode] = useState(false);
+  const [abapCheck, setAbapCheck] = useState(null);
+  const [abapCheckPending, setAbapCheckPending] = useState(false);
+  const [applyFailures, setApplyFailures] = useState([]);
+  const [modelRefreshPending, setModelRefreshPending] = useState(false);
   const wsRef = useRef(null);
   const currentTaskIdRef = useRef(null);
   const activeProjectIdRef = useRef(null);
@@ -262,9 +306,9 @@ function App() {
     }
   }
 
-  async function loadAgentSettings() {
+  async function loadAgentSettings(refresh = false) {
     try {
-      const payload = await getAgentSettings();
+      const payload = await getAgentSettings(refresh);
       setAgentSettings(payload.settings);
       setSettingsDraft(payload.settings);
       setSettingsOptions(payload.options);
@@ -296,6 +340,9 @@ function App() {
       setArtifactsCleaned(false);
       setTaskAgentConfig(null);
       setTaskRuns([]);
+      setTaskAbapMode(false);
+      setAbapCheck(null);
+      setApplyFailures([]);
       return;
     }
 
@@ -312,6 +359,9 @@ function App() {
       setTaskStatus(task.status);
       setTaskAgentConfig(task.agentConfig ?? null);
       setTaskRuns(task.runs ?? []);
+      setTaskAbapMode(Boolean(task.abapMode));
+      setAbapCheck(task.abapCheck ?? null);
+      setApplyFailures(task.applyResult?.failed ?? []);
       setArtifactsCleaned(Boolean(task.artifactsCleaned));
       setLogLines(task.events.filter((e) => e.type === "log").map((e) => ({ role: e.role, text: e.text })));
       if (task.rejectReason) setRejectedReasonRecord(task.rejectReason);
@@ -348,7 +398,10 @@ function App() {
           setReview(null);
           setShowRevisionForm(false);
           setRevisionInstruction("");
+          setAbapCheck(null);
+          setApplyFailures([]);
         }
+        if (event.applyFailed) setApplyFailures(event.applyResult?.failed ?? []);
         if (typeof event.artifactsCleaned === "boolean") setArtifactsCleaned(event.artifactsCleaned);
         if (event.cleanupError) setErrorMessage(`변경사항은 반영됐지만 임시 작업 정리에 실패했습니다: ${event.cleanupError}`);
         if (event.status === "completed" || event.status === "approved") {
@@ -375,6 +428,14 @@ function App() {
         });
       } else if (event.type === "artifacts_cleaned") {
         setArtifactsCleaned(true);
+      } else if (event.type === "abap_check") {
+        if (event.status === "running") {
+          setAbapCheck({ status: "running" });
+        } else {
+          getAbapCheck(event.taskId)
+            .then(setAbapCheck)
+            .catch((err) => setErrorMessage(err.message));
+        }
       }
     });
 
@@ -439,6 +500,9 @@ function App() {
     setArtifactsCleaned(false);
     setTaskAgentConfig(null);
     setTaskRuns([]);
+    setTaskAbapMode(false);
+    setAbapCheck(null);
+    setApplyFailures([]);
   }
 
   async function handleRemoveProject(project) {
@@ -503,6 +567,9 @@ function App() {
       setTaskStatus("starting");
       setTaskAgentConfig(agentSettings);
       setTaskRuns([]);
+      setTaskAbapMode(abapMode);
+      setAbapCheck(null);
+      setApplyFailures([]);
       currentTaskIdRef.current = newTaskId;
       setTaskId(newTaskId);
       getTaskStatus(newTaskId)
@@ -522,9 +589,63 @@ function App() {
     }
   }
 
+  async function handleRefreshModels() {
+    setModelRefreshPending(true);
+    setErrorMessage(null);
+    try {
+      await loadAgentSettings(true);
+    } finally {
+      setModelRefreshPending(false);
+    }
+  }
+
+  function changeAgentModel(agent, value) {
+    setSettingsDraft((previous) => {
+      const model = modelOption(settingsOptions, agent, value);
+      return {
+        ...previous,
+        [agent]: { model: value, effort: effortForModel(model, previous[agent].effort) },
+      };
+    });
+  }
+
+  async function handleAbapCheck() {
+    if (!taskId) return;
+    setAbapCheckPending(true);
+    setErrorMessage(null);
+    try {
+      await requestAbapCheck(taskId);
+      setAbapCheck({ status: "running" });
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setAbapCheckPending(false);
+    }
+  }
+
+  async function handleAbapFixRevision() {
+    if (!taskId || isRunning) return;
+    setRevisionPending(true);
+    setErrorMessage(null);
+    try {
+      await requestRevisionApi(taskId, "", true);
+      setTaskStatus("revising");
+    } catch (err) {
+      setErrorMessage(err.message);
+    } finally {
+      setRevisionPending(false);
+    }
+  }
+
   async function handleApprove() {
     if (!taskId || !diff) return;
-    if (!window.confirm("현재 표시된 변경사항을 기준 브랜치에 반영할까요?")) return;
+    let confirmText = "현재 표시된 변경사항을 기준 브랜치에 반영할까요?";
+    if (taskAbapMode && abapCheck?.status !== "done") {
+      confirmText = "아직 서버 검사를 하지 않았습니다. 그대로 SAP 서버에 반영하고 기준 브랜치에 병합할까요?";
+    } else if (taskAbapMode && abapCheck?.ok === false) {
+      confirmText = `서버 검사에서 오류 ${abapCheck.counts?.error ?? ""}건이 있었습니다. 그래도 반영할까요?`;
+    }
+    if (!window.confirm(confirmText)) return;
     setDecisionPending(true);
     setErrorMessage(null);
     try {
@@ -870,12 +991,13 @@ function App() {
               <span>모델</span>
               <select
                 value={settingsDraft.claude.model}
-                onChange={(e) => setSettingsDraft((previous) => ({
-                  ...previous,
-                  claude: { ...previous.claude, model: e.target.value },
-                }))}
+                onChange={(e) => changeAgentModel("claude", e.target.value)}
                 disabled={settingsPending}
+                title={modelOption(settingsOptions, "claude", settingsDraft.claude.model)?.description ?? ""}
               >
+                {!modelOption(settingsOptions, "claude", settingsDraft.claude.model) && (
+                  <option value={settingsDraft.claude.model}>{settingsDraft.claude.model} (사용 불가)</option>
+                )}
                 {settingsOptions.models.claude.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
@@ -884,14 +1006,17 @@ function App() {
             <label className="agent-settings__field">
               <span>Effort</span>
               <select
-                value={settingsDraft.claude.effort}
+                value={settingsDraft.claude.effort ?? ""}
                 onChange={(e) => setSettingsDraft((previous) => ({
                   ...previous,
-                  claude: { ...previous.claude, effort: e.target.value },
+                  claude: { ...previous.claude, effort: e.target.value || null },
                 }))}
-                disabled={settingsPending}
+                disabled={settingsPending || !(modelOption(settingsOptions, "claude", settingsDraft.claude.model)?.efforts?.length)}
               >
-                {settingsOptions.efforts.claude.map((effort) => (
+                {(modelOption(settingsOptions, "claude", settingsDraft.claude.model)?.efforts ?? []).length === 0 && (
+                  <option value="">미지원</option>
+                )}
+                {(modelOption(settingsOptions, "claude", settingsDraft.claude.model)?.efforts ?? []).map((effort) => (
                   <option key={effort} value={effort}>{effort}</option>
                 ))}
               </select>
@@ -903,12 +1028,13 @@ function App() {
               <span>모델</span>
               <select
                 value={settingsDraft.codex.model}
-                onChange={(e) => setSettingsDraft((previous) => ({
-                  ...previous,
-                  codex: { ...previous.codex, model: e.target.value },
-                }))}
+                onChange={(e) => changeAgentModel("codex", e.target.value)}
                 disabled={settingsPending}
+                title={modelOption(settingsOptions, "codex", settingsDraft.codex.model)?.description ?? ""}
               >
+                {!modelOption(settingsOptions, "codex", settingsDraft.codex.model) && (
+                  <option value={settingsDraft.codex.model}>{settingsDraft.codex.model} (사용 불가)</option>
+                )}
                 {settingsOptions.models.codex.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
@@ -917,19 +1043,37 @@ function App() {
             <label className="agent-settings__field">
               <span>Effort</span>
               <select
-                value={settingsDraft.codex.effort}
+                value={settingsDraft.codex.effort ?? ""}
                 onChange={(e) => setSettingsDraft((previous) => ({
                   ...previous,
-                  codex: { ...previous.codex, effort: e.target.value },
+                  codex: { ...previous.codex, effort: e.target.value || null },
                 }))}
-                disabled={settingsPending}
+                disabled={settingsPending || !(modelOption(settingsOptions, "codex", settingsDraft.codex.model)?.efforts?.length)}
               >
-                {settingsOptions.efforts.codex.map((effort) => (
+                {(modelOption(settingsOptions, "codex", settingsDraft.codex.model)?.efforts ?? []).length === 0 && (
+                  <option value="">미지원</option>
+                )}
+                {(modelOption(settingsOptions, "codex", settingsDraft.codex.model)?.efforts ?? []).map((effort) => (
                   <option key={effort} value={effort}>{effort}</option>
                 ))}
               </select>
             </label>
           </div>
+          <span
+            className={`agent-settings__note ${
+              settingsOptions.sources?.claude?.source === "fallback" || settingsOptions.sources?.codex?.source === "fallback"
+                ? "agent-settings__note--warn"
+                : ""
+            }`}
+            title={[settingsOptions.sources?.claude?.error, settingsOptions.sources?.codex?.error].filter(Boolean).join("\n")}
+          >
+            {settingsOptions.sources?.claude?.source === "fallback" || settingsOptions.sources?.codex?.source === "fallback"
+              ? "일부 모델 목록 조회 실패 — 기본 목록 사용 중"
+              : "현재 환경에서 사용 가능한 모델"}
+          </span>
+          <button type="button" className="btn btn--outline" onClick={handleRefreshModels} disabled={modelRefreshPending}>
+            {modelRefreshPending ? "조회 중..." : "모델 목록 새로고침"}
+          </button>
           <button
             type="button"
             className="btn btn--primary agent-settings__save"
@@ -1058,6 +1202,62 @@ function App() {
       {taskRuns.length > 0 && (
         <section className="usage-strip" aria-label="에이전트 사용량">
           {taskRuns.map((run) => <UsageEntry key={run.id} run={run} />)}
+        </section>
+      )}
+
+      {taskAbapMode && showDiff && (
+        <section className="abap-check" aria-label="SAP 서버 검사">
+          <div className="abap-check__head">
+            <strong>SAP 서버 검사</strong>
+            <span className="abap-check__summary">
+              {abapCheck?.status === "running"
+                ? "검사 중... (새 오브젝트는 실제로 생성·활성화합니다)"
+                : abapCheck?.status === "done"
+                  ? `통과 ${abapCheck.counts?.ok ?? 0} · 오류 ${abapCheck.counts?.error ?? 0} · 승인 시 검사 ${abapCheck.counts?.skipped ?? 0}`
+                  : abapCheck?.status === "failed"
+                    ? `검사 실패: ${abapCheck.error}`
+                    : "승인 전에 새 오브젝트를 서버에서 미리 만들어 문법·활성화를 확인합니다. 반려하면 만든 오브젝트를 삭제합니다."}
+            </span>
+            <div className="abap-check__actions">
+              {needsReview && (abapCheck?.ok === false || applyFailures.length > 0) && (
+                <button
+                  className="btn btn--outline"
+                  type="button"
+                  onClick={handleAbapFixRevision}
+                  disabled={isRunning || revisionPending || abapCheck?.status === "running"}
+                >
+                  {revisionPending ? "요청 중..." : "서버 오류로 수정 요청"}
+                </button>
+              )}
+              {needsReview && (
+                <button
+                  className="btn btn--primary"
+                  type="button"
+                  onClick={handleAbapCheck}
+                  disabled={isRunning || abapCheckPending || abapCheck?.status === "running" || decisionPending}
+                >
+                  {abapCheck?.status === "running" ? "검사 중..." : abapCheck?.status === "done" ? "다시 검사" : "서버 검사"}
+                </button>
+              )}
+            </div>
+          </div>
+          {abapCheck?.status === "done" && (
+            <ul className="abap-check__list">
+              {abapCheck.results.map((result) => (
+                <AbapCheckRow key={`${result.path}:${result.name}`} result={result} />
+              ))}
+            </ul>
+          )}
+          {applyFailures.length > 0 && (
+            <ul className="abap-check__list">
+              {applyFailures.map((failure, index) => (
+                <AbapCheckRow
+                  key={`apply-${index}`}
+                  result={{ path: failure.path, name: failure.name, status: "error", message: `승인(서버 반영) 실패: ${failure.reason}` }}
+                />
+              ))}
+            </ul>
+          )}
         </section>
       )}
 

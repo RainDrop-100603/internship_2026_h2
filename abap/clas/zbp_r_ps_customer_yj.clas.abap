@@ -1,0 +1,5 @@
+CLASS zbp_r_ps_customer_yj DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zr_ps_customer_yj.
+ENDCLASS.
+
+CLASS zbp_r_ps_customer_yj IMPLEMENTATION.
+ENDCLASS.

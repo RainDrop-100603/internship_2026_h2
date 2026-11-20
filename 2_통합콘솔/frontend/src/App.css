@@ -182,7 +182,17 @@
 }
 
 .agent-settings__save {
+  margin-left: 0;
+}
+
+.agent-settings__note {
   margin-left: auto;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.agent-settings__note--warn {
+  color: #b45309;
 }
 
 /* Task input */
@@ -468,6 +478,85 @@
 .usage-entry__pending--failed,
 .usage-entry__pending--aborted {
   color: #b91c1c;
+}
+
+.usage-entry__identity .usage-entry__aux {
+  color: #9ca3af;
+}
+
+.usage-entry__identity .usage-entry__mismatch {
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* SAP server check */
+.abap-check {
+  padding: 10px 28px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 12px;
+}
+
+.abap-check__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.abap-check__summary {
+  color: #6b7280;
+}
+
+.abap-check__actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.abap-check__list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.abap-check__row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 3px 0;
+  border-top: 1px solid #f3f4f6;
+}
+
+.abap-check__badge {
+  flex: none;
+  min-width: 72px;
+  font-weight: 600;
+}
+
+.abap-check__row--ok .abap-check__badge {
+  color: #15803d;
+}
+
+.abap-check__row--error .abap-check__badge {
+  color: #b91c1c;
+}
+
+.abap-check__row--skipped .abap-check__badge {
+  color: #6b7280;
+}
+
+.abap-check__path {
+  flex: none;
+  color: #374151;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.abap-check__message {
+  color: #4b5563;
+  word-break: break-word;
 }
 
 /* Workspace (3-column) */

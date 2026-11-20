@@ -30,6 +30,7 @@ import {
   projectRemovalBlockReason,
   serializeTask,
   initTaskManager,
+  checkAbapTask,
 } from "./taskManager.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,13 +73,18 @@ function requireProjectRemovalConfirmation(req, res, next) {
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-app.get("/api/settings", requireToken, (req, res) => {
-  res.json(getSettingsPayload());
+// 모델 목록은 사용자 환경에서 조회한다(10분 캐시). ?refresh=1이면 다시 조회한다.
+app.get("/api/settings", requireToken, async (req, res) => {
+  try {
+    res.json(await getSettingsPayload({ refresh: req.query.refresh === "1" }));
+  } catch (err) {
+    res.status(500).json({ error: String(err?.message ?? err) });
+  }
 });
 
-app.post("/api/settings", requireToken, (req, res) => {
+app.post("/api/settings", requireToken, async (req, res) => {
   try {
-    res.json({ settings: updateSettings(req.body?.settings) });
+    res.json({ settings: await updateSettings(req.body?.settings) });
   } catch (err) {
     res.status(400).json({ error: String(err?.message ?? err) });
   }
@@ -247,10 +253,27 @@ app.post("/api/tasks/:id/review", requireToken, (req, res) => {
   }
 });
 
+// 승인 전 서버 검사: 새 오브젝트는 실제로 생성·활성화해 검사하고, 기존 오브젝트 수정분은 저장하지 않는다.
+app.post("/api/tasks/:id/abap-check", requireToken, (req, res) => {
+  try {
+    checkAbapTask(req.params.id, broadcast);
+    res.json({ requested: true });
+  } catch (err) {
+    res.status(409).json({ error: String(err?.message ?? err) });
+  }
+});
+
+app.get("/api/tasks/:id/abap-check", requireToken, (req, res) => {
+  const task = getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: "not found" });
+  res.json(task.abapCheck ?? { status: "idle" });
+});
+
 app.post("/api/tasks/:id/revise", requireToken, async (req, res) => {
   const extraInstruction = typeof req.body?.instruction === "string" ? req.body.instruction.trim() : "";
+  const fromAbapErrors = req.body?.fromAbapErrors === true;
   try {
-    await requestRevision({ id: req.params.id, extraInstruction, reviewsRoot }, broadcast);
+    await requestRevision({ id: req.params.id, extraInstruction, reviewsRoot, fromAbapErrors }, broadcast);
     res.json({ requested: true });
   } catch (err) {
     res.status(409).json({ error: String(err?.message ?? err) });

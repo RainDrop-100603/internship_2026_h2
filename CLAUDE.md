@@ -31,7 +31,9 @@ SAP_BTP_인턴/
 │   ├── setup-guide.md       # BTP Trial + Eclipse/ADT + abapGit + MCP 세팅 절차·트러블슈팅
 │   ├── research-notes.md    # 조사·의사결정 기록 (환경/도구를 왜 선택했는가)
 │   └── workflow-rules.md    # 작업 단위 규칙 (폴더 + 브랜치 운용)
-└── 1_사전공부/         # 학습 자료 링크와 학습 순서 (README.md 참고)
+├── 1_사전공부/         # 학습 자료 링크와 학습 순서 (README.md 참고)
+├── 2_통합콘솔/         # Claude-Codex 통합 콘솔 (ABAP pull/apply 포함)
+└── 4_MiniPS_MVP/       # Mini PS Mock-up MVP 1차 (PS-01~04, 템플릿 없음) 범위·진행 단계
 ```
 
 새 폴더를 추가하면 위 구조에 반영할 것.
